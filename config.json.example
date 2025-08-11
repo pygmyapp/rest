@@ -1,0 +1,10 @@
+{
+    "mail": {
+        "from": "\"Pygmy\" <some@email.address>",
+        "host": "smtp.email.address",
+        "port": 123,
+        "secure": true,
+        "username": "username@email.address",
+        "password": "your-password-here"
+    }
+}
