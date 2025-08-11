@@ -26,7 +26,7 @@
     "drizzle-orm": "^0.44.4",
     "hono": "^4.8.12",
     "hono-openapi": "0.5.0-rc.3",
-    "ipc-client": "github:pygmyapp/ipc-client#c2a7e0c",
+    "ipc-client": "github:pygmyapp/ipc-client#d3bdd7f",
     "jose": "^6.0.12",
     "nodemailer": "^7.0.5",
     "pg": "^8.16.3",
