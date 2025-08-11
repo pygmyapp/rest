@@ -1,8 +1,7 @@
-// TODO: move ipc to it's own separate library/repo
-
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import IPC, { type IPCMessage } from '../../../ipc/src/lib';
+// @ts-ignore ipc-client is lacking typing... fix this
+import IPC, { type IPCMessage } from 'ipc-client';
 import { sessionsTable } from '../db/schema';
 import { validateToken } from './session';
 
