@@ -54,4 +54,4 @@ bun run dev
 ## Licence
 Copyright (c) 2025 Pygmy & contributors  
 All code & assets are licensed under GNU GPL v3 unless stated otherwise.  
-See `LICENSE.md` or [see here](https://www.gnu.org/licenses/gpl-3.0.txt).
+See `LICENSE` or [see here](https://www.gnu.org/licenses/gpl-3.0.txt).
