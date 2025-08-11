@@ -10,7 +10,8 @@ REST API to handle interacting with most of the platform
 - ideally password protected;
 - and with full access to the database created.
 
-`pygmyapp/rest` also requires access to an instance of `pygmyapp/ipc` to communicate with other processes.
+`pygmyapp/rest` also depends on:
+- an active IPC server (`pygmyapp/ipc-server`), used for sending events
 
 ## Documentation
 
