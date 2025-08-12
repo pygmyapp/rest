@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres
+    restart: always
+    shm_size: 128mb
+    env_file: .env.local
+    ports:
+      - 5432:5432
+    volumes:
+      - ./db:/var/lib/postgres/data
+  client:
+    build: .
+    ports:
+      - "3002:3002"
+    depends_on:
+      db:
+        condition: service_started
