@@ -23,6 +23,16 @@ In *dev mode*, human-readable API documentation is automatically generated and s
 
 ## Install
 
+### Docker
+
+If you are using Docker, you can clone this repository and run:
+
+```sh
+docker compose build # build image
+
+docker compose up # start image
+```
+
 ### Manual
 
 - Clone this repository
@@ -32,27 +42,21 @@ In *dev mode*, human-readable API documentation is automatically generated and s
 - Copy `.env.example` to `.env` and configure environment variables
 - Copy `config.json.example` to `config.json` and configure mailer settings
 
-## Running
-
-To start in production mode:
-
+You can then start in production/dev mode:
 ```sh
-bun run prod
-```
+bun run prod # production
 
-To run in dev mode (reload on file changes, human-readable documentation):
-
-```sh
-bun run dev
+bun run dev # dev mode - reloads on file changes, human-readable documentation
 ```
 
 ## Scripts
 
-- `bun run lint`: runs Biome's linting, applies safe fixes, suggests fixes to errors, and auto-organizes imports
+- `bun run lint`: runs Biome linting, applies safe fixes, and auto-organizes imports
 - `bun run push`: pushes Drizzle schema changes (in `db/schema.ts`) to the PostgreSQL database
 - `bun run studio`: runs Drizzle Studio, to visually access/modify database content
 
 ## Licence
-Copyright (c) 2025 Pygmy & contributors  
+Copyright (c) 2025 Pygmy & contributors
+
 All code & assets are licensed under GNU GPL v3 unless stated otherwise.  
 See `LICENSE` or [see here](https://www.gnu.org/licenses/gpl-3.0.txt).

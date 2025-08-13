@@ -9,7 +9,7 @@ import { validate } from '../handlers/validator';
 import {
   sessionCreateBody,
   sessionCreateResponse,
-  sessionDeleteQuery,
+  sessionDeleteParam,
   sessionListResponse
 } from '../schemas/session';
 import { errorResponse } from '../schemas/shared';
@@ -169,21 +169,22 @@ app.delete(
     }
   }),
   authMiddleware,
-  validate('query', sessionDeleteQuery),
+  validate('param', sessionDeleteParam),
   async (c) => {
-    const id = c.req.valid('query');
+    const { sessionId } = c.req.valid('param');
 
     const [session] = await db
       .select()
       .from(sessionsTable)
-      .where(eq(sessionsTable.id, id));
+      .where(eq(sessionsTable.id, sessionId));
 
     if (session === undefined)
       return c.json({ error: Errors.SessionNotFound }, 404);
 
-    await db.delete(sessionsTable).where(eq(sessionsTable.id, id));
+    await db.delete(sessionsTable).where(eq(sessionsTable.id, sessionId));
 
-    return c.status(204);
+    // TODO: fix this, it's giving a 500 error
+    return c.json({});
   }
 );
 

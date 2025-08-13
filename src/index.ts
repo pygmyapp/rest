@@ -1,5 +1,6 @@
 import { Scalar } from '@scalar/hono-api-reference';
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { openAPIRouteHandler } from 'hono-openapi';
 import { version } from '../package.json';
 import { ipc } from './handlers/ipc';
@@ -17,6 +18,8 @@ if (
   throw 'Session secret must be defined in .env';
 
 const app = new Hono();
+
+app.use('/*', cors());
 
 app.route('/users', user);
 app.route('/sessions', session);

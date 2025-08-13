@@ -1,10 +1,9 @@
 import { z } from 'zod';
 
-// Query params
-export const sessionDeleteQuery = z
-  .string()
-  .nonempty()
-  .meta({ description: 'Session ID' });
+// URL params
+export const sessionDeleteParam = z.object({
+  sessionId: z.string().nonempty().meta({ description: 'Session ID' })
+})
 
 // Requests
 export const sessionCreateBody = z.object({
@@ -30,7 +29,8 @@ export const sessionListResponse = z
 
 export const sessionCreateResponse = z
   .object({
-    id: z.string().meta({ description: 'Session ID' })
+    sessionId: z.string().meta({ description: 'Session ID' }),
+    token: z.string().meta({ description: 'Session token' })
   })
   .meta({
     description: 'Session created successfully'
