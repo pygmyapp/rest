@@ -3,7 +3,7 @@ import { z } from 'zod';
 // URL params
 export const sessionDeleteParam = z.object({
   sessionId: z.string().nonempty().meta({ description: 'Session ID' })
-})
+});
 
 // Requests
 export const sessionCreateBody = z.object({
