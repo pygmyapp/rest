@@ -18,19 +18,19 @@
     "@types/nodemailer": "^6.4.17",
     "@types/pg": "^8.15.5",
     "drizzle-kit": "^0.31.4",
-    "typescript": "^5"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "@hono/standard-validator": "^0.1.4",
     "@scalar/hono-api-reference": "^0.9.13",
     "drizzle-orm": "^0.44.4",
-    "hono": "^4.8.12",
+    "hono": "^4.9.1",
     "hono-openapi": "0.5.0-rc.3",
-    "ipc-client": "github:pygmyapp/ipc-client#d3bdd7f",
+    "ipc-client": "github:pygmyapp/ipc-client",
     "jose": "^6.0.12",
     "nodemailer": "^7.0.5",
     "pg": "^8.16.3",
     "snowyflake": "^2.0.1",
-    "zod": "^4.0.14"
+    "zod": "^4.0.17"
   }
 }
