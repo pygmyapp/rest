@@ -90,7 +90,7 @@ export const userCreateRequestBody = z.object({
   userId: z
     .string()
     .nonempty()
-    .meta({ description: 'User ID to send request to' })
+    .meta({ description: 'User ID to send friend request to' })
 });
 
 export const userUpdateRequestBody = z.object({
@@ -121,4 +121,19 @@ export const userGetSelfResponse = z
   })
   .meta({
     description: 'User object'
+  });
+
+export const userGetFriendsResponse = z.string().array().meta({
+  description: 'Array of user IDs'
+});
+
+export const userGetRequestsResponse = z
+  .object({
+    direction: z.enum(['INCOMING', 'OUTGOING']),
+    from: z.string(),
+    to: z.string()
+  })
+  .array()
+  .meta({
+    description: 'Array of friend request objects'
   });

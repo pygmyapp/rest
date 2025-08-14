@@ -15,6 +15,8 @@ import {
   userDeleteBlockedParam,
   userDeleteFriendParam,
   userDeleteRequestParam,
+  userGetFriendsResponse,
+  userGetRequestsResponse,
   userGetSelfResponse,
   userUpdateBody,
   userUpdateRequestBody,
@@ -23,7 +25,8 @@ import {
 
 const app = new Hono();
 
-// Create user
+// Create a new user
+// POST /users
 app.post(
   '/',
   describeRoute({
@@ -84,11 +87,12 @@ app.post(
   }
 );
 
-// Get current user
+// Fetch the authorized user
+// GET /users/@me
 app.get(
   '/@me',
   describeRoute({
-    description: 'Fetch the authorized user\n\n**🔒 Requires Authorization**',
+    description: 'Fetch the authorized user',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -123,7 +127,8 @@ app.get(
   }
 );
 
-// Edit user
+// Update the authorized user's details
+// PATCH /users/@me
 app.patch(
   '/@me',
   describeRoute({
@@ -259,17 +264,26 @@ app.patch(
   }
 );
 
-// Delete user
+// Delete the authorized user
+// DELETE /@me
 app.delete(
   '/@me',
   describeRoute({
     description:
-      'Delete the authorized user\n\n**⚠️ This process is irreversible!**\n\n**🔒 Requires Authorization**',
+      'Delete the authorized user\n\n**⚠️ This process is irreversible!**',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
         description: 'User deleted successfully'
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
       }
     }
   }),
@@ -289,40 +303,324 @@ app.delete(
   }
 );
 
-// Get friends
+// Fetch the authorized user\'s friends
 // GET /@me/friends
-app.get('/@me/friends', authMiddleware, async (c) => {});
+app.get(
+  '/@me/friends',
+  describeRoute({
+    description: 'Fetch the authorized user\'s friends',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'List of friends',
+        content: {
+          'application/json': {
+            schema: resolver(userGetFriendsResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  async (c) => {
+    const user = await prisma.user.findUnique({
+      where: { id: c.var.userId },
+      include: {
+        friends: {
+          select: { id: true, username: true }
+        }
+      }
+    });
+
+    if (!user) return c.json({ error: Errors.ServerError }, 500);
+
+    return c.json(user.friends);
+  }
+);
 
 // Remove a friend
 // DELETE /@me/friends/:userId
 app.delete(
   '/@me/friends/:userId',
+  describeRoute({
+    description: 'Remove a friend',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Friend removed successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
   authMiddleware,
   validate('param', userDeleteFriendParam),
-  async (c) => {}
+  async (c) => {
+    const { userId } = c.req.valid('param');
+
+    // Check the users exist
+    const user = await prisma.user.findUnique({
+      where: { id: c.var.userId },
+      include: { friends: { select: { id: true } } }
+    });
+
+    const friend = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { friends: { select: { id: true } } }
+    });
+
+    if (!user || !friend) return c.json({ error: Errors.FriendNotFound }, 400);
+
+    // Check the friendship exists
+    const friendshipExists =
+      user.friends.some(({ id }) => id === userId) &&
+      friend.friends.some(({ id }) => id === c.var.userId);
+
+    if (!friendshipExists) return c.json({ error: Errors.FriendNotFound }, 400);
+
+    // Disconnect users/delete friendship
+    await prisma.user.update({
+      where: { id: c.var.userId },
+      data: { friends: { disconnect: { id: userId } } }
+    });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { friends: { disconnect: { id: c.var.userId } } }
+    });
+
+    return c.body(null, 204);
+  }
 );
 
-// Get friend requests (incoming, outgoing)
+// Fetch the authorized user\'s friend requests (incoming, outgoing)
 // GET /@me/requests
-app.get('/@me/requests', authMiddleware, async (c) => {});
+app.get(
+  '/@me/requests',
+  describeRoute({
+    description: 'Fetch the authorized user\'s friend requests (incoming, outgoing)',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'List of friend requests',
+        content: {
+          'application/json': {
+            schema: resolver(userGetRequestsResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  async (c) => {
+    const requests = await prisma.request.findMany({
+      where: {
+        OR: [{ fromUserId: c.var.userId }, { toUserId: c.var.userId }]
+      }
+    });
+
+    return c.json(
+      requests.map((request) => ({
+        direction:
+          request.fromUserId === c.var.userId ? 'OUTGOING' : 'INCOMING',
+        from: request.fromUserId,
+        to: request.toUserId
+      }))
+    );
+  }
+);
 
 // Send a friend request
 // POST /@me/requests
 app.post(
   '/@me/requests',
+  describeRoute({
+    description: 'Send a friend request',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      201: {
+        description: 'Request sent successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
   authMiddleware,
   validate('json', userCreateRequestBody),
-  async (c) => {}
+  async (c) => {
+    // From: c.var.userId
+    // To: userId
+
+    const { userId } = c.req.valid('json');
+
+    // Make sure sender isn't the same user
+    if (userId === c.var.userId)
+      return c.json({ error: Errors.CannotSendRequestToSelf }, 400);
+
+    // Validate the receiver exists
+    const receiver = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!receiver) return c.json({ error: Errors.UserNotFound }, 400);
+
+    // Validate request hasn't been sent already
+    const request = await prisma.request.findFirst({
+      where: {
+        OR: [
+          { fromUserId: c.var.userId, toUserId: userId },
+
+          // Prevent reverse duplication (ie. if sender sent a request, then receiver tried to send a request too)
+          { fromUserId: userId, toUserId: c.var.userId }
+        ]
+      }
+    });
+
+    if (request) return c.json({ error: Errors.RequestAlreadySent }, 400);
+
+    // Create friend request
+    await prisma.request.create({
+      data: {
+        type: 'FRIEND_REQUEST',
+        fromUser: {
+          connect: {
+            id: c.var.userId
+          }
+        },
+        toUser: {
+          connect: {
+            id: userId
+          }
+        }
+      }
+    });
+
+    return c.body(null, 201);
+  }
 );
 
 // Accept/ignore an incoming friend request
 // PATCH /@me/requests/:userId
 app.patch(
   '/@me/requests/:userId',
+  describeRoute({
+    description: 'Accept/ignore a friend request',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      201: {
+        description: 'Friend request accepted/ignored successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
   authMiddleware,
   validate('param', userUpdateRequestParam),
   validate('json', userUpdateRequestBody),
-  async (c) => {}
+  async (c) => {
+    // As this is an incoming friend request, look up the request by "from"
+    // (it's coming *from* another user, aka. incoming)
+
+    // From: userId
+    // To: c.var.userId
+
+    const { userId } = c.req.valid('param');
+    const { accept } = c.req.valid('json');
+
+    // Find request
+    const request = await prisma.request.findFirst({
+      where: { fromUserId: userId }
+    });
+
+    if (!request) return c.json({ error: Errors.RequestNotFound }, 400);
+
+    // If accepting, add friend to both users
+    if (accept) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          friends: { connect: { id: c.var.userId } }
+        }
+      });
+
+      await prisma.user.update({
+        where: { id: c.var.userId },
+        data: {
+          friends: { connect: { id: userId } }
+        }
+      });
+    }
+
+    // Delete request
+    await prisma.request.delete({
+      where: { id: request.id }
+    });
+
+    return c.body(null, 201);
+  }
 );
 
 // Cancel an outgoing friend request
@@ -331,7 +629,29 @@ app.delete(
   '/@me/requests/:userId',
   authMiddleware,
   validate('param', userDeleteRequestParam),
-  async (c) => {}
+  async (c) => {
+    // As this is an outgoing friend request, look up the request by "to"
+    // (it's going *to* another user, aka. outgoing)
+
+    // From: c.var.userId
+    // To: userId
+
+    const { userId } = c.req.valid('param');
+
+    // Find request
+    const request = await prisma.request.findFirst({
+      where: { toUserId: userId }
+    });
+
+    if (!request) return c.json({ error: Errors.RequestNotFound }, 400);
+
+    // Delete request
+    await prisma.request.delete({
+      where: { id: request.id }
+    });
+
+    return c.body(null, 204);
+  }
 );
 
 // Get blocked users

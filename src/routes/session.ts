@@ -18,8 +18,7 @@ const app = new Hono();
 app.get(
   '/',
   describeRoute({
-    description:
-      "Fetch a list of the authorized user's active sessions\n\n**🔒 Requires Authorization**",
+    description: "Fetch a list of the authorized user's active sessions",
     tags: ['Sessions'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -121,7 +120,7 @@ app.delete(
   '/',
   describeRoute({
     description:
-      'Delete (log out) all sessions, including the current session in use\n\n**🔒 Requires Authorization**',
+      'Delete (log out) all sessions, including the current session in use',
     tags: ['Sessions'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -144,8 +143,7 @@ app.delete(
 app.delete(
   '/@me',
   describeRoute({
-    description:
-      'Delete (log out) the current session in use\n\n**🔒 Requires Authorization**',
+    description: 'Delete (log out) the current session in use',
     tags: ['Sessions'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -176,8 +174,7 @@ app.delete(
 app.delete(
   '/:sessionId',
   describeRoute({
-    description:
-      'Delete (log out) a specific session by ID\n\n**🔒 Requires Authorization**',
+    description: 'Delete (log out) a specific session by ID',
     tags: ['Sessions'],
     security: [{ bearerAuth: [] }],
     responses: {

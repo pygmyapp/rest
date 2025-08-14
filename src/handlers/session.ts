@@ -117,7 +117,7 @@ export const authMiddleware = createMiddleware<{
     await next();
   } catch (err) {
     console.error(err);
-    
+
     return c.json({ error: Errors.InvalidToken }, 401);
   }
 });
