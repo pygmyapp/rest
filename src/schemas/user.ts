@@ -87,10 +87,10 @@ export const userUpdateBody = z
   );
 
 export const userCreateRequestBody = z.object({
-  userId: z
+  username: z
     .string()
     .nonempty()
-    .meta({ description: 'User ID to send friend request to' })
+    .meta({ description: 'Username of user to send friend request to' })
 });
 
 export const userUpdateRequestBody = z.object({

@@ -497,29 +497,29 @@ app.post(
   validate('json', userCreateRequestBody),
   async (c) => {
     // From: c.var.userId
-    // To: userId
+    // To: receiver.id
 
-    const { userId } = c.req.valid('json');
-
-    // Make sure sender isn't the same user
-    if (userId === c.var.userId)
-      return c.json({ error: Errors.CannotSendRequestToSelf }, 400);
+    const { username } = c.req.valid('json');
 
     // Validate the receiver exists
     const receiver = await prisma.user.findUnique({
-      where: { id: userId }
+      where: { username }
     });
 
     if (!receiver) return c.json({ error: Errors.UserNotFound }, 400);
+
+    // Make sure sender isn't the same user
+    if (receiver.id === c.var.userId)
+      return c.json({ error: Errors.CannotSendRequestToSelf }, 400);
 
     // Validate request hasn't been sent already
     const request = await prisma.request.findFirst({
       where: {
         OR: [
-          { fromUserId: c.var.userId, toUserId: userId },
+          { fromUserId: c.var.userId, toUserId: receiver.id },
 
           // Prevent reverse duplication (ie. if sender sent a request, then receiver tried to send a request too)
-          { fromUserId: userId, toUserId: c.var.userId }
+          { fromUserId: receiver.id, toUserId: c.var.userId }
         ]
       }
     });
@@ -537,7 +537,7 @@ app.post(
         },
         toUser: {
           connect: {
-            id: userId
+            id: receiver.id
           }
         }
       }
@@ -656,7 +656,9 @@ app.delete(
 
 // Get blocked users
 // GET /@me/blocked
-app.get('/@me/blocked', authMiddleware, async (c) => {});
+app.get('/@me/blocked', authMiddleware, async (c) => {
+  return c.json([])
+});
 
 // Block a user
 // POST /@me/blocked
