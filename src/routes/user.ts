@@ -1,10 +1,8 @@
-import { eq, getTableColumns } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { Errors } from '../constants';
-import { sessionsTable, usersTable } from '../db/schema';
-import { sendMail } from '../handlers/mail';
+import prisma from '../handlers/db';
+// import { sendMail } from '../handlers/mail';
 import { authMiddleware } from '../handlers/session';
 import { generateSnowflake } from '../handlers/snowflake';
 import { validate } from '../handlers/validator';
@@ -24,7 +22,6 @@ import {
 } from '../schemas/user';
 
 const app = new Hono();
-const db = drizzle(process.env.DATABASE_URL ?? '');
 
 // Create user
 app.post(
@@ -56,36 +53,32 @@ app.post(
     const { email, username, password } = c.req.valid('json');
 
     // Check if email is already in use
-    const existingEmail = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.email, email));
+    const existingEmail = await prisma.user.findUnique({
+      where: { email }
+    });
 
-    if (existingEmail.length > 0)
-      return c.json({ error: Errors.EmailAlreadyInUse }, 400);
+    if (existingEmail) return c.json({ error: Errors.EmailAlreadyInUse }, 400);
 
     // Check if username is already in use
-    const existingUsername = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.username, username));
+    const existingUsername = await prisma.user.findUnique({
+      where: { username }
+    });
 
-    if (existingUsername.length > 0)
+    if (existingUsername)
       return c.json({ error: Errors.UsernameAlreadyInUse }, 400);
 
     // Add user to database
     const id = generateSnowflake();
     const hash = await Bun.password.hash(password);
 
-    const user: typeof usersTable.$inferInsert = {
-      id,
-      username,
-      email,
-      hash,
-      verified: false
-    };
-
-    await db.insert(usersTable).values(user);
+    await prisma.user.create({
+      data: {
+        id,
+        email,
+        username,
+        hash
+      }
+    });
 
     return c.json({ id }, 201);
   }
@@ -119,12 +112,10 @@ app.get(
   }),
   authMiddleware,
   async (c) => {
-    const { hash, ...columns } = getTableColumns(usersTable);
-
-    const [user] = await db
-      .select({ ...columns })
-      .from(usersTable)
-      .where(eq(usersTable.id, c.var.userId));
+    const user = await prisma.user.findUnique({
+      where: { id: c.var.userId },
+      omit: { hash: true }
+    });
 
     if (!user) return c.json({ error: Errors.ServerError }, 500);
 
@@ -170,10 +161,9 @@ app.patch(
   async (c) => {
     const data = c.req.valid('json');
 
-    const [user] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, c.var.userId));
+    const user = await prisma.user.findUnique({
+      where: { id: c.var.userId }
+    });
 
     if (!user) return c.json({ error: Errors.ServerError }, 500);
 
@@ -189,19 +179,23 @@ app.patch(
     // Email
     if (data.email !== undefined && data.email !== user.email) {
       // Check that current password is correct
-      if (!data.currentPassword) return c.json({ error: Errors.CurrentPasswordRequired }, 400);
+      if (!data.currentPassword)
+        return c.json({ error: Errors.CurrentPasswordRequired }, 400);
 
-      const currentPasswordValid = await Bun.password.verify(data.currentPassword, user.hash)
+      const currentPasswordValid = await Bun.password.verify(
+        data.currentPassword,
+        user.hash
+      );
 
-      if (!currentPasswordValid) return c.json({ error: Errors.InvalidPassword }, 401);
+      if (!currentPasswordValid)
+        return c.json({ error: Errors.InvalidPassword }, 401);
 
       // Check that new email address isn't in use
-      const existingEmail = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.email, data.email));
+      const existingEmail = await prisma.user.findUnique({
+        where: { email: data.email }
+      });
 
-      if (existingEmail.length > 0)
+      if (existingEmail)
         return c.json({ error: Errors.EmailAlreadyInUse }, 400);
 
       changes.email = data.email;
@@ -210,12 +204,11 @@ app.patch(
     // Username
     if (data.username !== undefined && data.username !== user.username) {
       // Check that new username isn't in use
-      const existingUsername = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.username, data.username));
+      const existingUsername = await prisma.user.findUnique({
+        where: { username: data.username }
+      });
 
-      if (existingUsername.length > 0)
+      if (existingUsername)
         return c.json({ error: Errors.UsernameAlreadyInUse }, 400);
 
       changes.username = data.username.toLowerCase();
@@ -224,16 +217,25 @@ app.patch(
     // Password
     if (data.newPassword !== undefined) {
       // Check that current password is correct
-      if (!data.currentPassword) return c.json({ error: Errors.CurrentPasswordRequired }, 400);
+      if (!data.currentPassword)
+        return c.json({ error: Errors.CurrentPasswordRequired }, 400);
 
-      const currentPasswordValid = await Bun.password.verify(data.currentPassword, user.hash)
+      const currentPasswordValid = await Bun.password.verify(
+        data.currentPassword,
+        user.hash
+      );
 
-      if (!currentPasswordValid) return c.json({ error: Errors.InvalidPassword }, 401);
+      if (!currentPasswordValid)
+        return c.json({ error: Errors.InvalidPassword }, 401);
 
       // Check that new password isn't the same as the current password
-      const passwordMatch = await Bun.password.verify(data.newPassword, user.hash);
+      const passwordMatch = await Bun.password.verify(
+        data.newPassword,
+        user.hash
+      );
 
-      if (passwordMatch) return c.json({ error: Errors.PasswordNotChanged }, 401);
+      if (passwordMatch)
+        return c.json({ error: Errors.PasswordNotChanged }, 401);
 
       // Hash new password
       const hash = await Bun.password.hash(data.newPassword);
@@ -242,16 +244,16 @@ app.patch(
     }
 
     // Save changes
-    await db.update(usersTable)
-      .set(changes)
-      .where(eq(usersTable.id, c.var.userId));
+    await prisma.user.update({
+      where: { id: user.id },
+      data: changes
+    });
 
     // Invalidate sessions, if required
-    if ('hash' in changes) {
-      await db
-        .delete(sessionsTable)
-        .where(eq(sessionsTable.userId, c.var.userId));
-    }
+    if ('hash' in changes)
+      await prisma.session.deleteMany({
+        where: { userId: user.id }
+      });
 
     return c.json({});
   }
@@ -273,7 +275,15 @@ app.delete(
   }),
   authMiddleware,
   async (c) => {
-    await db.delete(usersTable).where(eq(usersTable.id, c.var.userId));
+    // Delete user
+    await prisma.user.delete({
+      where: { id: c.var.userId }
+    });
+
+    // Delete all sessions
+    await prisma.session.deleteMany({
+      where: { userId: c.var.userId }
+    });
 
     return c.status(204);
   }
@@ -285,7 +295,12 @@ app.get('/@me/friends', authMiddleware, async (c) => {});
 
 // Remove a friend
 // DELETE /@me/friends/:userId
-app.delete('/@me/friends/:userId', authMiddleware, validate('param', userDeleteFriendParam), async (c) => {});
+app.delete(
+  '/@me/friends/:userId',
+  authMiddleware,
+  validate('param', userDeleteFriendParam),
+  async (c) => {}
+);
 
 // Get friend requests (incoming, outgoing)
 // GET /@me/requests
@@ -293,15 +308,31 @@ app.get('/@me/requests', authMiddleware, async (c) => {});
 
 // Send a friend request
 // POST /@me/requests
-app.post('/@me/requests', authMiddleware, validate('json', userCreateRequestBody), async (c) => {});
+app.post(
+  '/@me/requests',
+  authMiddleware,
+  validate('json', userCreateRequestBody),
+  async (c) => {}
+);
 
 // Accept/ignore an incoming friend request
 // PATCH /@me/requests/:userId
-app.patch('/@me/requests/:userId', authMiddleware, validate('param', userUpdateRequestParam), validate('json', userUpdateRequestBody), async (c) => {});
+app.patch(
+  '/@me/requests/:userId',
+  authMiddleware,
+  validate('param', userUpdateRequestParam),
+  validate('json', userUpdateRequestBody),
+  async (c) => {}
+);
 
 // Cancel an outgoing friend request
 // DELETE /@me/requests/:userId
-app.delete('/@me/requests/:userId', authMiddleware, validate('param', userDeleteRequestParam), async (c) => {});
+app.delete(
+  '/@me/requests/:userId',
+  authMiddleware,
+  validate('param', userDeleteRequestParam),
+  async (c) => {}
+);
 
 // Get blocked users
 // GET /@me/blocked
@@ -309,11 +340,21 @@ app.get('/@me/blocked', authMiddleware, async (c) => {});
 
 // Block a user
 // POST /@me/blocked
-app.post('/@me/blocked', authMiddleware, validate('json', userCreateBlockedBody), async (c) => {});
+app.post(
+  '/@me/blocked',
+  authMiddleware,
+  validate('json', userCreateBlockedBody),
+  async (c) => {}
+);
 
 // Unblock a user
 // DELETE /@me/blocked/:userId
-app.delete('/@me/blocked/:userId', authMiddleware, validate('param', userDeleteBlockedParam), async (c) => {});
+app.delete(
+  '/@me/blocked/:userId',
+  authMiddleware,
+  validate('param', userDeleteBlockedParam),
+  async (c) => {}
+);
 
 // Get open direct messages and group channels
 // TODO: GET /@me/channels

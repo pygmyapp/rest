@@ -2,15 +2,24 @@ import { z } from 'zod';
 
 // URL params
 export const userDeleteFriendParam = z.object({
-  userId: z.string().nonempty().meta({ description: 'User ID of friend to remove' })
+  userId: z
+    .string()
+    .nonempty()
+    .meta({ description: 'User ID of friend to remove' })
 });
 
 export const userUpdateRequestParam = z.object({
-  userId: z.string().nonempty().meta({ description: 'User ID of request to accept/ignore' })
+  userId: z
+    .string()
+    .nonempty()
+    .meta({ description: 'User ID of request to accept/ignore' })
 });
 
 export const userDeleteRequestParam = z.object({
-  userId: z.string().nonempty().meta({ description: 'User ID of request to cancel' })
+  userId: z
+    .string()
+    .nonempty()
+    .meta({ description: 'User ID of request to cancel' })
 });
 
 export const userDeleteBlockedParam = z.object({
@@ -78,11 +87,16 @@ export const userUpdateBody = z
   );
 
 export const userCreateRequestBody = z.object({
-  userId: z.string().nonempty().meta({ description: 'User ID to send request to' })
+  userId: z
+    .string()
+    .nonempty()
+    .meta({ description: 'User ID to send request to' })
 });
 
 export const userUpdateRequestBody = z.object({
-  accept: z.boolean().meta({ description: 'Whether to accept the friend request or not' })
+  accept: z
+    .boolean()
+    .meta({ description: 'Whether to accept the friend request or not' })
 });
 
 export const userCreateBlockedBody = z.object({

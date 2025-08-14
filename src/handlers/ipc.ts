@@ -1,11 +1,7 @@
-import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
 // @ts-ignore ipc-client is lacking typing... fix this
 import IPC, { type IPCMessage } from 'ipc-client';
-import { sessionsTable } from '../db/schema';
+import prisma from '../handlers/db';
 import { validateToken } from './session';
-
-const db = drizzle(process.env.DATABASE_URL ?? '');
 
 export const ipc = new IPC('rest');
 
@@ -37,15 +33,14 @@ ipc.on('message', async (message: IPCMessage) => {
 
       try {
         // Validate token
-        const { sessionId } = await validateToken(token);
+        const { sessionId: id } = await validateToken(token);
 
         // Check session is still valid in database
-        const [session] = await db
-          .select()
-          .from(sessionsTable)
-          .where(eq(sessionsTable.id, sessionId));
+        const session = await prisma.session.findUnique({
+          where: { id }
+        });
 
-        if (session === undefined)
+        if (!session)
           return ipc.send('gateway', {
             type: 'response',
             action: 'VERIFY_TOKEN',
@@ -61,7 +56,9 @@ ipc.on('message', async (message: IPCMessage) => {
         weekAgo.setDate(now.getDate() - 14);
 
         if (session.lastUse < weekAgo) {
-          await db.delete(sessionsTable).where(eq(sessionsTable.id, sessionId));
+          await prisma.session.delete({
+            where: { id }
+          });
 
           return ipc.send('gateway', {
             type: 'response',
@@ -73,12 +70,12 @@ ipc.on('message', async (message: IPCMessage) => {
         }
 
         // Update session last use
-        await db
-          .update(sessionsTable)
-          .set({
+        await prisma.session.update({
+          where: { id },
+          data: {
             lastUse: new Date()
-          })
-          .where(eq(sessionsTable.id, sessionId));
+          }
+        });
 
         return ipc.send('gateway', {
           type: 'response',
@@ -103,5 +100,6 @@ ipc.on('message', async (message: IPCMessage) => {
 
   // Response:
   if (type === 'response') {
+    // TODO: when required, currently not in use.
   }
 });

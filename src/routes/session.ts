@@ -1,9 +1,7 @@
-import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { Errors } from '../constants';
-import { sessionsTable, usersTable } from '../db/schema';
+import prisma from '../handlers/db';
 import { authMiddleware, encodeToken } from '../handlers/session';
 import { validate } from '../handlers/validator';
 import {
@@ -15,7 +13,6 @@ import {
 import { errorResponse } from '../schemas/shared';
 
 const app = new Hono();
-const db = drizzle(process.env.DATABASE_URL ?? '');
 
 // Get all sessions of logged in user
 app.get(
@@ -38,22 +35,20 @@ app.get(
   }),
   authMiddleware,
   async (c) => {
-    const sessions = await db
-      .select()
-      .from(sessionsTable)
-      .where(eq(sessionsTable.userId, c.var.userId));
+    const sessions = await prisma.session.findMany({
+      where: { userId: c.var.userId }
+    });
 
-    if (sessions === undefined)
-      return c.json({ error: Errors.ServerError }, 500);
+    if (!sessions.length) return c.json([]);
 
-    const formatted = sessions.map(({ id, userId, lastUse }) => ({
-      id,
-      userId,
-      lastUsed: lastUse,
-      active: id === c.var.sessionId
-    }));
-
-    return c.json(formatted);
+    return c.json(
+      sessions.map(({ id, userId, lastUse }) => ({
+        id,
+        userId,
+        lastUsed: lastUse,
+        active: id === c.var.sessionId
+      }))
+    );
   }
 );
 
@@ -87,13 +82,12 @@ app.post(
     const { email, password } = c.req.valid('json');
 
     // Find user
-    const [user] = await db
-      .select({ id: usersTable.id, hash: usersTable.hash })
-      .from(usersTable)
-      .where(eq(usersTable.email, email));
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, hash: true }
+    });
 
-    if (user === undefined)
-      return c.json({ error: Errors.InvalidEmailOrPassword }, 401);
+    if (!user) return c.json({ error: Errors.InvalidEmailOrPassword }, 401);
 
     // Validate password
     const valid = await Bun.password.verify(password, user.hash);
@@ -104,12 +98,12 @@ app.post(
     const { sessionId, token } = await encodeToken(user.id);
 
     // Add session to database
-    const session: typeof sessionsTable.$inferInsert = {
-      id: sessionId,
-      userId: user.id
-    };
-
-    await db.insert(sessionsTable).values(session);
+    await prisma.session.create({
+      data: {
+        id: sessionId,
+        userId: user.id
+      }
+    });
 
     return c.json(
       {
@@ -138,11 +132,43 @@ app.delete(
   }),
   authMiddleware,
   async (c) => {
-    await db
-      .delete(sessionsTable)
-      .where(eq(sessionsTable.userId, c.var.userId));
+    await prisma.session.deleteMany({
+      where: { userId: c.var.userId }
+    });
 
-    return c.status(204);
+    return c.body(null, 204);
+  }
+);
+
+// Delete (log out) the currently authorized/logged in session
+app.delete(
+  '/@me',
+  describeRoute({
+    description:
+      'Delete (log out) the current session in use\n\n**🔒 Requires Authorization**',
+    tags: ['Sessions'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Session deleted'
+      },
+      404: {
+        description: 'Session not found (invalid or expired)',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  async (c) => {
+    await prisma.session.delete({
+      where: { id: c.var.sessionId }
+    });
+
+    return c.body(null, 204);
   }
 );
 
@@ -171,20 +197,19 @@ app.delete(
   authMiddleware,
   validate('param', sessionDeleteParam),
   async (c) => {
-    const { sessionId } = c.req.valid('param');
+    const { sessionId: id } = c.req.valid('param');
 
-    const [session] = await db
-      .select()
-      .from(sessionsTable)
-      .where(eq(sessionsTable.id, sessionId));
+    const session = await prisma.session.findUnique({
+      where: { id }
+    });
 
-    if (session === undefined)
-      return c.json({ error: Errors.SessionNotFound }, 404);
+    if (!session) return c.json({ error: Errors.SessionNotFound }, 404);
 
-    await db.delete(sessionsTable).where(eq(sessionsTable.id, sessionId));
+    await prisma.session.delete({
+      where: { id }
+    });
 
-    // TODO: fix this, it's giving a 500 error
-    return c.json({});
+    return c.body(null, 204);
   }
 );
 

@@ -38,9 +38,9 @@ docker compose up # start image
 - Clone this repository
 - Install dependencies with `bun install`
 - Ensure a PostgreSQL database is installed, configured and running
-- Run `bun run push` to configure database columns
 - Copy `.env.example` to `.env` and configure environment variables
 - Copy `config.json.example` to `config.json` and configure mailer settings
+- Run `bun run init-db` to configure database & generate Prisma client
 
 You can then start in production/dev mode:
 ```sh
@@ -52,8 +52,9 @@ bun run dev # dev mode - reloads on file changes, human-readable documentation
 ## Scripts
 
 - `bun run lint`: runs Biome linting, applies safe fixes, and auto-organizes imports
-- `bun run push`: pushes Drizzle schema changes (in `db/schema.ts`) to the PostgreSQL database
-- `bun run studio`: runs Drizzle Studio, to visually access/modify database content
+- `bun run init-db`: shortcut for `bunx prisma db push`; applies Prisma schema to database, generates Prisma client from schema
+- `bunx prisma generate`: generates Prisma client from schema
+- `bunx prisma format`: formats Prisma schema, if/when changes are made
 
 ## Licence
 Copyright (c) 2025 Pygmy & contributors
