@@ -19,11 +19,12 @@ import {
   userGetParam,
   userGetRequestsResponse,
   userGetResponse,
-  userGetSelfResponse,
+  userGetSelfResponse, 
   userUpdateBody,
   userUpdateRequestBody,
   userUpdateRequestParam
 } from '../schemas/user';
+import { ipc } from '../handlers/ipc';
 
 const app = new Hono();
 
@@ -338,14 +339,16 @@ app.get(
       where: { id: c.var.userId },
       include: {
         friends: {
-          select: { id: true, username: true }
+          select: { id: true }
         }
       }
     });
 
     if (!user) return c.json({ error: Errors.ServerError }, 500);
 
-    return c.json(user.friends);
+    return c.json(
+      user.friends.map(({ id }) => id)
+    );
   }
 );
 
@@ -413,6 +416,21 @@ app.delete(
     await prisma.user.update({
       where: { id: userId },
       data: { friends: { disconnect: { id: c.var.userId } } }
+    });
+
+    // Send Gateway events
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'FRIEND_DELETE`',
+      to: c.var.userId,
+      userId
+    });
+
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'FRIEND_DELETE`',
+      to: userId,
+      userId: c.var.userId
     });
 
     return c.body(null, 204);
