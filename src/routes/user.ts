@@ -421,14 +421,14 @@ app.delete(
     // Send Gateway events
     await ipc.send('gateway', {
       type: 'event',
-      event: 'FRIEND_DELETE`',
+      event: 'FRIEND_DELETE',
       to: c.var.userId,
       userId
     });
 
     await ipc.send('gateway', {
       type: 'event',
-      event: 'FRIEND_DELETE`',
+      event: 'FRIEND_DELETE',
       to: userId,
       userId: c.var.userId
     });
