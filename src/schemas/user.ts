@@ -26,6 +26,10 @@ export const userDeleteBlockedParam = z.object({
   userId: z.string().nonempty().meta({ description: 'User ID to unblock' })
 });
 
+export const userGetParam = z.object({
+  userId: z.string().nonempty().meta({ description: 'User ID to fetch' })
+});
+
 // Requests
 export const userCreateBody = z.object({
   email: z.email().meta({ description: 'Email address' }),
@@ -136,4 +140,13 @@ export const userGetRequestsResponse = z
   .array()
   .meta({
     description: 'Array of friend request objects'
+  });
+
+export const userGetResponse = z
+  .object({
+    id: z.string().meta({ description: 'User ID' }),
+    username: z.string().meta({ description: 'Username' })
+  })
+  .meta({
+    description: 'User object'
   });

@@ -16,7 +16,9 @@ import {
   userDeleteFriendParam,
   userDeleteRequestParam,
   userGetFriendsResponse,
+  userGetParam,
   userGetRequestsResponse,
+  userGetResponse,
   userGetSelfResponse,
   userUpdateBody,
   userUpdateRequestBody,
@@ -92,7 +94,7 @@ app.post(
 app.get(
   '/@me',
   describeRoute({
-    description: 'Fetch the authorized user',
+    description: 'Fetch the authorized user\n\nThis route will return additional details that can only be accessed by the authorized user',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -694,5 +696,61 @@ app.delete(
 // TODO: DELETE /@me/channels/:channelId
 
 // TODO: ✨ messages ✨
+
+// Fetch a user by ID
+// GET /users/:userId
+app.get(
+  '/:userId',
+  describeRoute({
+    description: 'Fetch a user by ID\n\nFor privacy, this route will only return basic information, unless you share a relation with the user (ie. you share a server, are friends, etc.)',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Partial/full User object',
+        content: {
+          'application/json': {
+            schema: resolver(userGetResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      404: {
+        description: 'User not found',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  validate('param', userGetParam),
+  async (c) => {
+    const { userId: id } = c.req.valid('param');
+
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        username: true
+      }
+    });
+
+    if (!user) return c.json({ error: Errors.UserNotFound }, 404);
+
+    // TODO: check relation :)
+
+    return c.json(user);
+  }
+);
 
 export default app;
