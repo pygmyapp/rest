@@ -422,14 +422,14 @@ app.delete(
     await ipc.send('gateway', {
       type: 'event',
       event: 'FRIEND_DELETE',
-      to: c.var.userId,
+      client: c.var.userId,
       userId
     });
 
     await ipc.send('gateway', {
       type: 'event',
       event: 'FRIEND_DELETE',
-      to: userId,
+      client: userId,
       userId: c.var.userId
     });
 
@@ -563,6 +563,25 @@ app.post(
       }
     });
 
+    // Send Gateway events
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_CREATE',
+      client: c.var.userId,
+      from: c.var.userId,
+      to: receiver.id,
+      direction: 'OUTGOING'
+    });
+
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_CREATE',
+      client: receiver.id,
+      from: c.var.userId,
+      to: receiver.id,
+      direction: 'INCOMING'
+    });
+
     return c.body(null, 201);
   }
 );
@@ -639,6 +658,41 @@ app.patch(
       where: { id: request.id }
     });
 
+    // Send Gateway events
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_DELETE',
+      client: c.var.userId,
+      from: userId,
+      to: c.var.userId,
+      direction: 'INCOMING'
+    });
+
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_DELETE',
+      client: userId,
+      from: userId,
+      to: c.var.userId,
+      direction: 'OUTGOING'
+    });
+
+    if (accept) {
+      await ipc.send('gateway', {
+        type: 'event',
+        event: 'FRIEND_CREATE',
+        client: c.var.userId,
+        userId
+      });
+
+      await ipc.send('gateway', {
+        type: 'event',
+        event: 'FRIEND_CREATE',
+        client: userId,
+        userId: c.var.userId
+      });
+    }
+
     return c.body(null, 201);
   }
 );
@@ -668,6 +722,25 @@ app.delete(
     // Delete request
     await prisma.request.delete({
       where: { id: request.id }
+    });
+
+    // Send Gateway events
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_DELETE',
+      client: c.var.userId,
+      from: c.var.userId,
+      to: userId,
+      direction: 'OUTGOING'
+    });
+
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_DELETE',
+      client: userId,
+      from: c.var.userId,
+      to: userId,
+      direction: 'INCOMING'
     });
 
     return c.body(null, 204);
