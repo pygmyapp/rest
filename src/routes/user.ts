@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { Errors } from '../constants';
 import prisma from '../handlers/db';
+import { ipc } from '../handlers/ipc';
 // import { sendMail } from '../handlers/mail';
 import { authMiddleware } from '../handlers/session';
 import { generateSnowflake } from '../handlers/snowflake';
@@ -19,12 +20,11 @@ import {
   userGetParam,
   userGetRequestsResponse,
   userGetResponse,
-  userGetSelfResponse, 
+  userGetSelfResponse,
   userUpdateBody,
   userUpdateRequestBody,
   userUpdateRequestParam
 } from '../schemas/user';
-import { ipc } from '../handlers/ipc';
 
 const app = new Hono();
 
@@ -95,7 +95,8 @@ app.post(
 app.get(
   '/@me',
   describeRoute({
-    description: 'Fetch the authorized user\n\nThis route will return additional details that can only be accessed by the authorized user',
+    description:
+      'Fetch the authorized user\n\nThis route will return additional details that can only be accessed by the authorized user',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -311,7 +312,7 @@ app.delete(
 app.get(
   '/@me/friends',
   describeRoute({
-    description: 'Fetch the authorized user\'s friends',
+    description: "Fetch the authorized user's friends",
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -346,9 +347,7 @@ app.get(
 
     if (!user) return c.json({ error: Errors.ServerError }, 500);
 
-    return c.json(
-      user.friends.map(({ id }) => id)
-    );
+    return c.json(user.friends.map(({ id }) => id));
   }
 );
 
@@ -442,7 +441,8 @@ app.delete(
 app.get(
   '/@me/requests',
   describeRoute({
-    description: 'Fetch the authorized user\'s friend requests (incoming, outgoing)',
+    description:
+      "Fetch the authorized user's friend requests (incoming, outgoing)",
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -750,7 +750,7 @@ app.delete(
 // Get blocked users
 // GET /@me/blocked
 app.get('/@me/blocked', authMiddleware, async (c) => {
-  return c.json([])
+  return c.json([]);
 });
 
 // Block a user
@@ -793,7 +793,8 @@ app.delete(
 app.get(
   '/:userId',
   describeRoute({
-    description: 'Fetch a user by ID\n\nFor privacy, this route will only return basic information, unless you share a relation with the user (ie. you share a server, are friends, etc.)',
+    description:
+      'Fetch a user by ID\n\nFor privacy, this route will only return basic information, unless you share a relation with the user (ie. you share a server, are friends, etc.)',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {

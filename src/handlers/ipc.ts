@@ -96,6 +96,55 @@ ipc.on('message', async (message: IPCMessage) => {
         });
       }
     }
+
+    if (
+      message.from === 'gateway' &&
+      action === 'FETCH_USER_DATA' &&
+      'userId' in message.payload
+    ) {
+      const userId = message.payload.userId as string;
+
+      // Determine user relations
+
+      // A user is considered "related" to another user (and thus entited to receive their data) if:
+      // - they are friends
+      // - they are both in a group channel
+      // - they are both in a server
+      const relations: string[] = [];
+
+      // (friends)
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          friends: {
+            select: { id: true }
+          }
+        }
+      });
+
+      if (user) relations.push(...user.friends.map(({ id }) => id));
+
+      // Fetch the data of those users
+      const data = await prisma.user.findMany({
+        where: {
+          id: {
+            in: relations
+          }
+        },
+        select: {
+          id: true,
+          username: true
+        }
+      });
+
+      // Send data to Gateway
+      return ipc.send('gateway', {
+        type: 'response',
+        action: 'FETCH_USER_DATA',
+        userId,
+        data
+      });
+    }
   }
 
   // Response:
