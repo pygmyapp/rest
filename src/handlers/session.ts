@@ -1,12 +1,9 @@
-import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
 import { createMiddleware } from 'hono/factory';
 import { jwtVerify, SignJWT } from 'jose';
 import { Errors } from '../constants';
-import { sessionsTable } from '../db/schema';
+import prisma from '../handlers/db';
 import { generateSnowflake } from './snowflake';
 
-const db = drizzle(process.env.DATABASE_URL ?? '');
 const secret = new TextEncoder().encode(process.env.SESSION_SECRET ?? '');
 
 // Encode/create session token
@@ -55,8 +52,9 @@ export const validateToken = async (
       sessionId: payload.sessionId,
       userId: payload.userId
     };
-  } catch (_err) {
-    console.error(_err);
+  } catch (err) {
+    console.error(err);
+
     throw 'Invalid token';
   }
 };
@@ -75,22 +73,22 @@ export const authMiddleware = createMiddleware<{
 
   // Check it is valid (Bearer and non-empty)
   const [type, token, ...other] = header.split(' ');
+
   if (!type || !token || other.length !== 0)
     return c.json({ error: Errors.InvalidToken }, 401);
+  
   if (type !== 'Bearer') return c.json({ error: Errors.InvalidTokenType }, 401);
 
   try {
     // Validate token
-    const { sessionId } = await validateToken(token);
+    const { sessionId: id } = await validateToken(token);
 
     // Check session is still valid in database
-    const [session] = await db
-      .select()
-      .from(sessionsTable)
-      .where(eq(sessionsTable.id, sessionId));
+    const session = await prisma.session.findUnique({
+      where: { id }
+    });
 
-    if (session === undefined)
-      return c.json({ error: Errors.ExpiredToken }, 401);
+    if (!session) return c.json({ error: Errors.ExpiredToken }, 401);
 
     // If session hasn't been used in more than 2 weeks, it should be expired
     const now = new Date();
@@ -99,18 +97,20 @@ export const authMiddleware = createMiddleware<{
     weekAgo.setDate(now.getDate() - 14);
 
     if (session.lastUse < weekAgo) {
-      await db.delete(sessionsTable).where(eq(sessionsTable.id, sessionId));
+      await prisma.session.delete({
+        where: { id }
+      });
 
       return c.json({ error: Errors.ExpiredToken }, 401);
     }
 
     // Update session last use
-    await db
-      .update(sessionsTable)
-      .set({
+    await prisma.session.update({
+      where: { id },
+      data: {
         lastUse: new Date()
-      })
-      .where(eq(sessionsTable.id, sessionId));
+      }
+    });
 
     // Set session variables and continue request
     c.set('sessionId', session.id);
@@ -119,6 +119,7 @@ export const authMiddleware = createMiddleware<{
     await next();
   } catch (err) {
     console.error(err);
+
     return c.json({ error: Errors.InvalidToken }, 401);
   }
 });

@@ -1,11 +1,7 @@
-import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
 // @ts-ignore ipc-client is lacking typing... fix this
 import IPC, { type IPCMessage } from 'ipc-client';
-import { sessionsTable } from '../db/schema';
+import prisma from '../handlers/db';
 import { validateToken } from './session';
-
-const db = drizzle(process.env.DATABASE_URL ?? '');
 
 export const ipc = new IPC('rest');
 
@@ -29,7 +25,7 @@ ipc.on('message', async (message: IPCMessage) => {
     // NOTE: this should act basically the same as session.ts authMiddleware,
     // apart from error sending ... if it gets updated, update this too!
     if (
-      message.from === 'gateway' &&
+      (message.from === 'gateway' || message.from === 'cdn') &&
       action === 'VERIFY_TOKEN' &&
       'token' in message.payload
     ) {
@@ -37,16 +33,15 @@ ipc.on('message', async (message: IPCMessage) => {
 
       try {
         // Validate token
-        const { sessionId } = await validateToken(token);
+        const { sessionId: id } = await validateToken(token);
 
         // Check session is still valid in database
-        const [session] = await db
-          .select()
-          .from(sessionsTable)
-          .where(eq(sessionsTable.id, sessionId));
+        const session = await prisma.session.findUnique({
+          where: { id }
+        });
 
-        if (session === undefined)
-          return ipc.send('gateway', {
+        if (!session)
+          return ipc.send(message.from, {
             type: 'response',
             action: 'VERIFY_TOKEN',
             token,
@@ -61,9 +56,11 @@ ipc.on('message', async (message: IPCMessage) => {
         weekAgo.setDate(now.getDate() - 14);
 
         if (session.lastUse < weekAgo) {
-          await db.delete(sessionsTable).where(eq(sessionsTable.id, sessionId));
+          await prisma.session.delete({
+            where: { id }
+          });
 
-          return ipc.send('gateway', {
+          return ipc.send(message.from, {
             type: 'response',
             action: 'VERIFY_TOKEN',
             token,
@@ -73,14 +70,14 @@ ipc.on('message', async (message: IPCMessage) => {
         }
 
         // Update session last use
-        await db
-          .update(sessionsTable)
-          .set({
+        await prisma.session.update({
+          where: { id },
+          data: {
             lastUse: new Date()
-          })
-          .where(eq(sessionsTable.id, sessionId));
+          }
+        });
 
-        return ipc.send('gateway', {
+        return ipc.send(message.from, {
           type: 'response',
           action: 'VERIFY_TOKEN',
           token,
@@ -90,7 +87,7 @@ ipc.on('message', async (message: IPCMessage) => {
       } catch (err) {
         console.error(err);
 
-        return ipc.send('gateway', {
+        return ipc.send(message.from, {
           type: 'response',
           action: 'VERIFY_TOKEN',
           token,
@@ -99,9 +96,59 @@ ipc.on('message', async (message: IPCMessage) => {
         });
       }
     }
+
+    if (
+      message.from === 'gateway' &&
+      action === 'FETCH_USER_DATA' &&
+      'userId' in message.payload
+    ) {
+      const userId = message.payload.userId as string;
+
+      // Determine user relations
+
+      // A user is considered "related" to another user (and thus entited to receive their data) if:
+      // - they are friends
+      // - they are both in a group channel
+      // - they are both in a server
+      const relations: string[] = [];
+
+      // (friends)
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          friends: {
+            select: { id: true }
+          }
+        }
+      });
+
+      if (user) relations.push(...user.friends.map(({ id }) => id));
+
+      // Fetch the data of those users
+      const data = await prisma.user.findMany({
+        where: {
+          id: {
+            in: relations
+          }
+        },
+        select: {
+          id: true,
+          username: true
+        }
+      });
+
+      // Send data to Gateway
+      return ipc.send('gateway', {
+        type: 'response',
+        action: 'FETCH_USER_DATA',
+        userId,
+        data
+      });
+    }
   }
 
   // Response:
   if (type === 'response') {
+    // TODO: when required, currently not in use.
   }
 });

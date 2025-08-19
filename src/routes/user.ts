@@ -1,10 +1,9 @@
-import { eq, getTableColumns } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { Errors } from '../constants';
-import { sessionsTable, usersTable } from '../db/schema';
-import { sendMail } from '../handlers/mail';
+import prisma from '../handlers/db';
+import { ipc } from '../handlers/ipc';
+// import { sendMail } from '../handlers/mail';
 import { authMiddleware } from '../handlers/session';
 import { generateSnowflake } from '../handlers/snowflake';
 import { validate } from '../handlers/validator';
@@ -17,6 +16,10 @@ import {
   userDeleteBlockedParam,
   userDeleteFriendParam,
   userDeleteRequestParam,
+  userGetFriendsResponse,
+  userGetParam,
+  userGetRequestsResponse,
+  userGetResponse,
   userGetSelfResponse,
   userUpdateBody,
   userUpdateRequestBody,
@@ -24,9 +27,9 @@ import {
 } from '../schemas/user';
 
 const app = new Hono();
-const db = drizzle(process.env.DATABASE_URL ?? '');
 
-// Create user
+// Create a new user
+// POST /users
 app.post(
   '/',
   describeRoute({
@@ -56,46 +59,44 @@ app.post(
     const { email, username, password } = c.req.valid('json');
 
     // Check if email is already in use
-    const existingEmail = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.email, email));
+    const existingEmail = await prisma.user.findUnique({
+      where: { email }
+    });
 
-    if (existingEmail.length > 0)
-      return c.json({ error: Errors.EmailAlreadyInUse }, 400);
+    if (existingEmail) return c.json({ error: Errors.EmailAlreadyInUse }, 400);
 
     // Check if username is already in use
-    const existingUsername = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.username, username));
+    const existingUsername = await prisma.user.findUnique({
+      where: { username }
+    });
 
-    if (existingUsername.length > 0)
+    if (existingUsername)
       return c.json({ error: Errors.UsernameAlreadyInUse }, 400);
 
     // Add user to database
     const id = generateSnowflake();
     const hash = await Bun.password.hash(password);
 
-    const user: typeof usersTable.$inferInsert = {
-      id,
-      username,
-      email,
-      hash,
-      verified: false
-    };
-
-    await db.insert(usersTable).values(user);
+    await prisma.user.create({
+      data: {
+        id,
+        email,
+        username,
+        hash
+      }
+    });
 
     return c.json({ id }, 201);
   }
 );
 
-// Get current user
+// Fetch the authorized user
+// GET /users/@me
 app.get(
   '/@me',
   describeRoute({
-    description: 'Fetch the authorized user\n\n**🔒 Requires Authorization**',
+    description:
+      'Fetch the authorized user\n\nThis route will return additional details that can only be accessed by the authorized user',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -119,12 +120,10 @@ app.get(
   }),
   authMiddleware,
   async (c) => {
-    const { hash, ...columns } = getTableColumns(usersTable);
-
-    const [user] = await db
-      .select({ ...columns })
-      .from(usersTable)
-      .where(eq(usersTable.id, c.var.userId));
+    const user = await prisma.user.findUnique({
+      where: { id: c.var.userId },
+      omit: { hash: true }
+    });
 
     if (!user) return c.json({ error: Errors.ServerError }, 500);
 
@@ -132,7 +131,8 @@ app.get(
   }
 );
 
-// Edit user
+// Update the authorized user's details
+// PATCH /users/@me
 app.patch(
   '/@me',
   describeRoute({
@@ -170,10 +170,9 @@ app.patch(
   async (c) => {
     const data = c.req.valid('json');
 
-    const [user] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, c.var.userId));
+    const user = await prisma.user.findUnique({
+      where: { id: c.var.userId }
+    });
 
     if (!user) return c.json({ error: Errors.ServerError }, 500);
 
@@ -189,19 +188,23 @@ app.patch(
     // Email
     if (data.email !== undefined && data.email !== user.email) {
       // Check that current password is correct
-      if (!data.currentPassword) return c.json({ error: Errors.CurrentPasswordRequired }, 400);
+      if (!data.currentPassword)
+        return c.json({ error: Errors.CurrentPasswordRequired }, 400);
 
-      const currentPasswordValid = await Bun.password.verify(data.currentPassword, user.hash)
+      const currentPasswordValid = await Bun.password.verify(
+        data.currentPassword,
+        user.hash
+      );
 
-      if (!currentPasswordValid) return c.json({ error: Errors.InvalidPassword }, 401);
+      if (!currentPasswordValid)
+        return c.json({ error: Errors.InvalidPassword }, 401);
 
       // Check that new email address isn't in use
-      const existingEmail = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.email, data.email));
+      const existingEmail = await prisma.user.findUnique({
+        where: { email: data.email }
+      });
 
-      if (existingEmail.length > 0)
+      if (existingEmail)
         return c.json({ error: Errors.EmailAlreadyInUse }, 400);
 
       changes.email = data.email;
@@ -210,12 +213,11 @@ app.patch(
     // Username
     if (data.username !== undefined && data.username !== user.username) {
       // Check that new username isn't in use
-      const existingUsername = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.username, data.username));
+      const existingUsername = await prisma.user.findUnique({
+        where: { username: data.username }
+      });
 
-      if (existingUsername.length > 0)
+      if (existingUsername)
         return c.json({ error: Errors.UsernameAlreadyInUse }, 400);
 
       changes.username = data.username.toLowerCase();
@@ -224,16 +226,25 @@ app.patch(
     // Password
     if (data.newPassword !== undefined) {
       // Check that current password is correct
-      if (!data.currentPassword) return c.json({ error: Errors.CurrentPasswordRequired }, 400);
+      if (!data.currentPassword)
+        return c.json({ error: Errors.CurrentPasswordRequired }, 400);
 
-      const currentPasswordValid = await Bun.password.verify(data.currentPassword, user.hash)
+      const currentPasswordValid = await Bun.password.verify(
+        data.currentPassword,
+        user.hash
+      );
 
-      if (!currentPasswordValid) return c.json({ error: Errors.InvalidPassword }, 401);
+      if (!currentPasswordValid)
+        return c.json({ error: Errors.InvalidPassword }, 401);
 
       // Check that new password isn't the same as the current password
-      const passwordMatch = await Bun.password.verify(data.newPassword, user.hash);
+      const passwordMatch = await Bun.password.verify(
+        data.newPassword,
+        user.hash
+      );
 
-      if (passwordMatch) return c.json({ error: Errors.PasswordNotChanged }, 401);
+      if (passwordMatch)
+        return c.json({ error: Errors.PasswordNotChanged }, 401);
 
       // Hash new password
       const hash = await Bun.password.hash(data.newPassword);
@@ -242,78 +253,523 @@ app.patch(
     }
 
     // Save changes
-    await db.update(usersTable)
-      .set(changes)
-      .where(eq(usersTable.id, c.var.userId));
+    await prisma.user.update({
+      where: { id: user.id },
+      data: changes
+    });
 
     // Invalidate sessions, if required
-    if ('hash' in changes) {
-      await db
-        .delete(sessionsTable)
-        .where(eq(sessionsTable.userId, c.var.userId));
-    }
+    if ('hash' in changes)
+      await prisma.session.deleteMany({
+        where: { userId: user.id }
+      });
 
     return c.json({});
   }
 );
 
-// Delete user
+// Delete the authorized user
+// DELETE /@me
 app.delete(
   '/@me',
   describeRoute({
     description:
-      'Delete the authorized user\n\n**⚠️ This process is irreversible!**\n\n**🔒 Requires Authorization**',
+      'Delete the authorized user\n\n**⚠️ This process is irreversible!**',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
         description: 'User deleted successfully'
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
       }
     }
   }),
   authMiddleware,
   async (c) => {
-    await db.delete(usersTable).where(eq(usersTable.id, c.var.userId));
+    // Delete user
+    await prisma.user.delete({
+      where: { id: c.var.userId }
+    });
+
+    // Delete all sessions
+    await prisma.session.deleteMany({
+      where: { userId: c.var.userId }
+    });
 
     return c.status(204);
   }
 );
 
-// Get friends
+// Fetch the authorized user\'s friends
 // GET /@me/friends
-app.get('/@me/friends', authMiddleware, async (c) => {});
+app.get(
+  '/@me/friends',
+  describeRoute({
+    description: "Fetch the authorized user's friends",
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'List of friends',
+        content: {
+          'application/json': {
+            schema: resolver(userGetFriendsResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  async (c) => {
+    const user = await prisma.user.findUnique({
+      where: { id: c.var.userId },
+      include: {
+        friends: {
+          select: { id: true }
+        }
+      }
+    });
+
+    if (!user) return c.json({ error: Errors.ServerError }, 500);
+
+    return c.json(user.friends.map(({ id }) => id));
+  }
+);
 
 // Remove a friend
 // DELETE /@me/friends/:userId
-app.delete('/@me/friends/:userId', authMiddleware, validate('param', userDeleteFriendParam), async (c) => {});
+app.delete(
+  '/@me/friends/:userId',
+  describeRoute({
+    description: 'Remove a friend',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Friend removed successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  validate('param', userDeleteFriendParam),
+  async (c) => {
+    const { userId } = c.req.valid('param');
 
-// Get friend requests (incoming, outgoing)
+    // Check the users exist
+    const user = await prisma.user.findUnique({
+      where: { id: c.var.userId },
+      include: { friends: { select: { id: true } } }
+    });
+
+    const friend = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { friends: { select: { id: true } } }
+    });
+
+    if (!user || !friend) return c.json({ error: Errors.FriendNotFound }, 400);
+
+    // Check the friendship exists
+    const friendshipExists =
+      user.friends.some(({ id }) => id === userId) &&
+      friend.friends.some(({ id }) => id === c.var.userId);
+
+    if (!friendshipExists) return c.json({ error: Errors.FriendNotFound }, 400);
+
+    // Disconnect users/delete friendship
+    await prisma.user.update({
+      where: { id: c.var.userId },
+      data: { friends: { disconnect: { id: userId } } }
+    });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { friends: { disconnect: { id: c.var.userId } } }
+    });
+
+    // Send Gateway events
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'FRIEND_DELETE',
+      client: c.var.userId,
+      userId
+    });
+
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'FRIEND_DELETE',
+      client: userId,
+      userId: c.var.userId
+    });
+
+    return c.body(null, 204);
+  }
+);
+
+// Fetch the authorized user\'s friend requests (incoming, outgoing)
 // GET /@me/requests
-app.get('/@me/requests', authMiddleware, async (c) => {});
+app.get(
+  '/@me/requests',
+  describeRoute({
+    description:
+      "Fetch the authorized user's friend requests (incoming, outgoing)",
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'List of friend requests',
+        content: {
+          'application/json': {
+            schema: resolver(userGetRequestsResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  async (c) => {
+    const requests = await prisma.request.findMany({
+      where: {
+        OR: [{ fromUserId: c.var.userId }, { toUserId: c.var.userId }]
+      }
+    });
+
+    return c.json(
+      requests.map((request) => ({
+        direction:
+          request.fromUserId === c.var.userId ? 'OUTGOING' : 'INCOMING',
+        from: request.fromUserId,
+        to: request.toUserId
+      }))
+    );
+  }
+);
 
 // Send a friend request
 // POST /@me/requests
-app.post('/@me/requests', authMiddleware, validate('json', userCreateRequestBody), async (c) => {});
+app.post(
+  '/@me/requests',
+  describeRoute({
+    description: 'Send a friend request',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      201: {
+        description: 'Request sent successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  validate('json', userCreateRequestBody),
+  async (c) => {
+    // From: c.var.userId
+    // To: receiver.id
+
+    const { username } = c.req.valid('json');
+
+    // Validate the receiver exists
+    const receiver = await prisma.user.findUnique({
+      where: { username }
+    });
+
+    if (!receiver) return c.json({ error: Errors.UserNotFound }, 400);
+
+    // Make sure sender isn't the same user
+    if (receiver.id === c.var.userId)
+      return c.json({ error: Errors.CannotSendRequestToSelf }, 400);
+
+    // Validate request hasn't been sent already
+    const request = await prisma.request.findFirst({
+      where: {
+        OR: [
+          { fromUserId: c.var.userId, toUserId: receiver.id },
+
+          // Prevent reverse duplication (ie. if sender sent a request, then receiver tried to send a request too)
+          { fromUserId: receiver.id, toUserId: c.var.userId }
+        ]
+      }
+    });
+
+    if (request) return c.json({ error: Errors.RequestAlreadySent }, 400);
+
+    // Create friend request
+    await prisma.request.create({
+      data: {
+        type: 'FRIEND_REQUEST',
+        fromUser: {
+          connect: {
+            id: c.var.userId
+          }
+        },
+        toUser: {
+          connect: {
+            id: receiver.id
+          }
+        }
+      }
+    });
+
+    // Send Gateway events
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_CREATE',
+      client: c.var.userId,
+      from: c.var.userId,
+      to: receiver.id,
+      direction: 'OUTGOING'
+    });
+
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_CREATE',
+      client: receiver.id,
+      from: c.var.userId,
+      to: receiver.id,
+      direction: 'INCOMING'
+    });
+
+    return c.body(null, 201);
+  }
+);
 
 // Accept/ignore an incoming friend request
 // PATCH /@me/requests/:userId
-app.patch('/@me/requests/:userId', authMiddleware, validate('param', userUpdateRequestParam), validate('json', userUpdateRequestBody), async (c) => {});
+app.patch(
+  '/@me/requests/:userId',
+  describeRoute({
+    description: 'Accept/ignore a friend request',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      201: {
+        description: 'Friend request accepted/ignored successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  validate('param', userUpdateRequestParam),
+  validate('json', userUpdateRequestBody),
+  async (c) => {
+    // As this is an incoming friend request, look up the request by "from"
+    // (it's coming *from* another user, aka. incoming)
+
+    // From: userId
+    // To: c.var.userId
+
+    const { userId } = c.req.valid('param');
+    const { accept } = c.req.valid('json');
+
+    // Find request
+    const request = await prisma.request.findFirst({
+      where: { fromUserId: userId }
+    });
+
+    if (!request) return c.json({ error: Errors.RequestNotFound }, 400);
+
+    // If accepting, add friend to both users
+    if (accept) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          friends: { connect: { id: c.var.userId } }
+        }
+      });
+
+      await prisma.user.update({
+        where: { id: c.var.userId },
+        data: {
+          friends: { connect: { id: userId } }
+        }
+      });
+    }
+
+    // Delete request
+    await prisma.request.delete({
+      where: { id: request.id }
+    });
+
+    // Send Gateway events
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_DELETE',
+      client: c.var.userId,
+      from: userId,
+      to: c.var.userId,
+      direction: 'INCOMING'
+    });
+
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_DELETE',
+      client: userId,
+      from: userId,
+      to: c.var.userId,
+      direction: 'OUTGOING'
+    });
+
+    if (accept) {
+      await ipc.send('gateway', {
+        type: 'event',
+        event: 'FRIEND_CREATE',
+        client: c.var.userId,
+        userId
+      });
+
+      await ipc.send('gateway', {
+        type: 'event',
+        event: 'FRIEND_CREATE',
+        client: userId,
+        userId: c.var.userId
+      });
+    }
+
+    return c.body(null, 201);
+  }
+);
 
 // Cancel an outgoing friend request
 // DELETE /@me/requests/:userId
-app.delete('/@me/requests/:userId', authMiddleware, validate('param', userDeleteRequestParam), async (c) => {});
+app.delete(
+  '/@me/requests/:userId',
+  authMiddleware,
+  validate('param', userDeleteRequestParam),
+  async (c) => {
+    // As this is an outgoing friend request, look up the request by "to"
+    // (it's going *to* another user, aka. outgoing)
+
+    // From: c.var.userId
+    // To: userId
+
+    const { userId } = c.req.valid('param');
+
+    // Find request
+    const request = await prisma.request.findFirst({
+      where: { toUserId: userId }
+    });
+
+    if (!request) return c.json({ error: Errors.RequestNotFound }, 400);
+
+    // Delete request
+    await prisma.request.delete({
+      where: { id: request.id }
+    });
+
+    // Send Gateway events
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_DELETE',
+      client: c.var.userId,
+      from: c.var.userId,
+      to: userId,
+      direction: 'OUTGOING'
+    });
+
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'REQUEST_DELETE',
+      client: userId,
+      from: c.var.userId,
+      to: userId,
+      direction: 'INCOMING'
+    });
+
+    return c.body(null, 204);
+  }
+);
 
 // Get blocked users
 // GET /@me/blocked
-app.get('/@me/blocked', authMiddleware, async (c) => {});
+app.get('/@me/blocked', authMiddleware, async (c) => {
+  return c.json([]);
+});
 
 // Block a user
 // POST /@me/blocked
-app.post('/@me/blocked', authMiddleware, validate('json', userCreateBlockedBody), async (c) => {});
+app.post(
+  '/@me/blocked',
+  authMiddleware,
+  validate('json', userCreateBlockedBody),
+  async (c) => {}
+);
 
 // Unblock a user
 // DELETE /@me/blocked/:userId
-app.delete('/@me/blocked/:userId', authMiddleware, validate('param', userDeleteBlockedParam), async (c) => {});
+app.delete(
+  '/@me/blocked/:userId',
+  authMiddleware,
+  validate('param', userDeleteBlockedParam),
+  async (c) => {}
+);
 
 // Get open direct messages and group channels
 // TODO: GET /@me/channels
@@ -331,5 +787,62 @@ app.delete('/@me/blocked/:userId', authMiddleware, validate('param', userDeleteB
 // TODO: DELETE /@me/channels/:channelId
 
 // TODO: ✨ messages ✨
+
+// Fetch a user by ID
+// GET /users/:userId
+app.get(
+  '/:userId',
+  describeRoute({
+    description:
+      'Fetch a user by ID\n\nFor privacy, this route will only return basic information, unless you share a relation with the user (ie. you share a server, are friends, etc.)',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Partial/full User object',
+        content: {
+          'application/json': {
+            schema: resolver(userGetResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      404: {
+        description: 'User not found',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  validate('param', userGetParam),
+  async (c) => {
+    const { userId: id } = c.req.valid('param');
+
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        username: true
+      }
+    });
+
+    if (!user) return c.json({ error: Errors.UserNotFound }, 404);
+
+    // TODO: check relation :)
+
+    return c.json(user);
+  }
+);
 
 export default app;

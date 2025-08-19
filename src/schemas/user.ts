@@ -2,19 +2,32 @@ import { z } from 'zod';
 
 // URL params
 export const userDeleteFriendParam = z.object({
-  userId: z.string().nonempty().meta({ description: 'User ID of friend to remove' })
+  userId: z
+    .string()
+    .nonempty()
+    .meta({ description: 'User ID of friend to remove' })
 });
 
 export const userUpdateRequestParam = z.object({
-  userId: z.string().nonempty().meta({ description: 'User ID of request to accept/ignore' })
+  userId: z
+    .string()
+    .nonempty()
+    .meta({ description: 'User ID of request to accept/ignore' })
 });
 
 export const userDeleteRequestParam = z.object({
-  userId: z.string().nonempty().meta({ description: 'User ID of request to cancel' })
+  userId: z
+    .string()
+    .nonempty()
+    .meta({ description: 'User ID of request to cancel' })
 });
 
 export const userDeleteBlockedParam = z.object({
   userId: z.string().nonempty().meta({ description: 'User ID to unblock' })
+});
+
+export const userGetParam = z.object({
+  userId: z.string().nonempty().meta({ description: 'User ID to fetch' })
 });
 
 // Requests
@@ -78,11 +91,16 @@ export const userUpdateBody = z
   );
 
 export const userCreateRequestBody = z.object({
-  userId: z.string().nonempty().meta({ description: 'User ID to send request to' })
+  username: z
+    .string()
+    .nonempty()
+    .meta({ description: 'Username of user to send friend request to' })
 });
 
 export const userUpdateRequestBody = z.object({
-  accept: z.boolean().meta({ description: 'Whether to accept the friend request or not' })
+  accept: z
+    .boolean()
+    .meta({ description: 'Whether to accept the friend request or not' })
 });
 
 export const userCreateBlockedBody = z.object({
@@ -104,6 +122,30 @@ export const userGetSelfResponse = z
     email: z.email().meta({ description: 'Email address' }),
     username: z.string().meta({ description: 'Username' }),
     verified: z.boolean().meta({ description: 'Email address verified status' })
+  })
+  .meta({
+    description: 'User object'
+  });
+
+export const userGetFriendsResponse = z.string().array().meta({
+  description: 'Array of user IDs'
+});
+
+export const userGetRequestsResponse = z
+  .object({
+    direction: z.enum(['INCOMING', 'OUTGOING']),
+    from: z.string(),
+    to: z.string()
+  })
+  .array()
+  .meta({
+    description: 'Array of friend request objects'
+  });
+
+export const userGetResponse = z
+  .object({
+    id: z.string().meta({ description: 'User ID' }),
+    username: z.string().meta({ description: 'Username' })
   })
   .meta({
     description: 'User object'
