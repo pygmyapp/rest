@@ -25,7 +25,7 @@ ipc.on('message', async (message: IPCMessage) => {
     // NOTE: this should act basically the same as session.ts authMiddleware,
     // apart from error sending ... if it gets updated, update this too!
     if (
-      message.from === 'gateway' &&
+      (message.from === 'gateway' || message.from === 'cdn') &&
       action === 'VERIFY_TOKEN' &&
       'token' in message.payload
     ) {
@@ -41,7 +41,7 @@ ipc.on('message', async (message: IPCMessage) => {
         });
 
         if (!session)
-          return ipc.send('gateway', {
+          return ipc.send(message.from, {
             type: 'response',
             action: 'VERIFY_TOKEN',
             token,
@@ -60,7 +60,7 @@ ipc.on('message', async (message: IPCMessage) => {
             where: { id }
           });
 
-          return ipc.send('gateway', {
+          return ipc.send(message.from, {
             type: 'response',
             action: 'VERIFY_TOKEN',
             token,
@@ -77,7 +77,7 @@ ipc.on('message', async (message: IPCMessage) => {
           }
         });
 
-        return ipc.send('gateway', {
+        return ipc.send(message.from, {
           type: 'response',
           action: 'VERIFY_TOKEN',
           token,
@@ -87,7 +87,7 @@ ipc.on('message', async (message: IPCMessage) => {
       } catch (err) {
         console.error(err);
 
-        return ipc.send('gateway', {
+        return ipc.send(message.from, {
           type: 'response',
           action: 'VERIFY_TOKEN',
           token,
