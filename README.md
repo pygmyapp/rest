@@ -12,6 +12,7 @@ REST API to handle interacting with most of the platform
 
 `pygmyapp/rest` also depends on:
 - an active IPC server (`pygmyapp/ipc-server`), used for sending events
+- an active CDN (`pygmyapp/cdn`), used for uploading/serving avatars, attachments, etc.
 
 ## Documentation
 
