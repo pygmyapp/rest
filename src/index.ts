@@ -4,6 +4,7 @@ import { cors } from 'hono/cors';
 import { openAPIRouteHandler } from 'hono-openapi';
 import { version } from '../package.json';
 import { ipc } from './handlers/ipc';
+import { verify as verifyMailTransporter } from './handlers/mail';
 import session from './routes/session';
 import user from './routes/user';
 
@@ -81,5 +82,8 @@ app.get('/health', (c) => c.json({ ok: true }));
 
 // Connect to IPC
 ipc.connect();
+
+// Verify mail transporter is working
+verifyMailTransporter();
 
 export default app;

@@ -22,7 +22,7 @@ export const sendMail = async (to: string, subject: string, body: string) => {
 };
 
 // Validate SMTP server
-(async () => {
+export const verify = async (): Promise<void> => {
   try {
     await transporter.verify();
 
@@ -30,4 +30,4 @@ export const sendMail = async (to: string, subject: string, body: string) => {
   } catch (error) {
     throw `Failed to connect to SMTP server: ${error}`;
   }
-})();
+}
