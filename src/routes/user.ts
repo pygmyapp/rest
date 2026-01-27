@@ -21,6 +21,8 @@ import {
   userGetRequestsResponse,
   userGetResponse,
   userGetSelfResponse,
+  userGetUsernameAvailabilityParam,
+  userGetUsernameAvailabilityResponse,
   userUpdateBody,
   userUpdateRequestBody,
   userUpdateRequestParam
@@ -82,7 +84,14 @@ app.post(
         id,
         email,
         username,
-        hash
+        hash,
+        profile: {
+          create: {
+            displayName: null,
+            bio: null,
+            pronouns: null
+          }
+        }
       }
     });
 
@@ -122,7 +131,10 @@ app.get(
   async (c) => {
     const user = await prisma.user.findUnique({
       where: { id: c.var.userId },
-      omit: { hash: true }
+      omit: { hash: true },
+      include: {
+        profile: true
+      }
     });
 
     if (!user) return c.json({ error: Errors.ServerError }, 500);
@@ -833,7 +845,8 @@ app.get(
       where: { id },
       select: {
         id: true,
-        username: true
+        username: true,
+        profile: true
       }
     });
 
@@ -842,6 +855,38 @@ app.get(
     // TODO: check relation :)
 
     return c.json(user);
+  }
+);
+
+// Check username availability
+// GET /availability
+app.get(
+  '/availability/:username',
+  describeRoute({
+    description: 'Check username availability',
+    tags: ['Users'],
+    responses: {
+      200: {
+        description: 'Availability result',
+        content: {
+          'application/json': {
+            schema: resolver(userGetUsernameAvailabilityResponse)
+          }
+        }
+      }
+    }
+  }),
+  validate('param', userGetUsernameAvailabilityParam),
+  async (c) => {
+    const { username } = c.req.valid('param');
+
+    const user = await prisma.user.findUnique({
+      where: { username }
+    });
+
+    if (!user) return c.json(true);
+
+    return c.json(false);
   }
 );
 

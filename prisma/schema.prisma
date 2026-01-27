@@ -1,14 +1,12 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-  provider = "prisma-client-js"
-  output   = "../generated/prisma"
+  provider      = "prisma-client"
+  output        = "../generated/prisma"
+  compilerBuild = "fast"
+  runtime       = "bun"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -19,25 +17,43 @@ model User {
   verified Boolean   @default(false)
   sessions Session[]
 
+  // Email Verification
+  emailVerified              Boolean   @default(false)
+  emailVerificationToken     String?
+  emailVerificationCreatedAt DateTime?
+
+  // Profile
+  profile Profile?
+
   // Friends
   friends  User[] @relation("UserFriends")
   friendOf User[] @relation("UserFriends")
 
-  sentRequests     Request[]       @relation("SentRequests")    
-  receivedRequests Request[]       @relation("ReceivedRequests")
+  sentRequests     Request[] @relation("SentRequests")
+  receivedRequests Request[] @relation("ReceivedRequests")
+}
+
+model Profile {
+  id     Int    @id @default(autoincrement())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+
+  avatar      Boolean @default(false)
+  displayName String?
+  bio         String?
+  pronouns    String?
 }
 
 model Request {
-  id Int @id @default(autoincrement())
-  createdAt DateTime @default(now())
+  id        Int         @id @default(autoincrement())
+  createdAt DateTime    @default(now())
+  type      RequestType
 
-  fromUser User @relation("SentRequests", fields: [fromUserId], references: [id])
+  fromUser   User   @relation("SentRequests", fields: [fromUserId], references: [id])
   fromUserId String
 
-  toUser User @relation("ReceivedRequests", fields: [toUserId], references: [id])
+  toUser   User   @relation("ReceivedRequests", fields: [toUserId], references: [id])
   toUserId String
-
-  type RequestType
 
   // Prevent duplicates
   @@unique([fromUserId, toUserId])

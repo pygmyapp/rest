@@ -76,7 +76,7 @@ export const authMiddleware = createMiddleware<{
 
   if (!type || !token || other.length !== 0)
     return c.json({ error: Errors.InvalidToken }, 401);
-  
+
   if (type !== 'Bearer') return c.json({ error: Errors.InvalidTokenType }, 401);
 
   try {

@@ -76,6 +76,9 @@ if (process.env.NODE_ENV === 'development')
     })
   );
 
+// Health check
+app.get('/health', (c) => c.json({ ok: true }));
+
 // Connect to IPC
 ipc.connect();
 

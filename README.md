@@ -41,9 +41,10 @@ docker compose up # start image
 - Ensure a PostgreSQL database is installed, configured and running
 - Copy `.env.example` to `.env` and configure environment variables
 - Copy `config.json.example` to `config.json` and configure mailer settings
-- Run `bun run init-db` to configure database & generate Prisma client
+- Run `bunx --bun prisma migrate deploy` to configure database & `bunx --bun prisma generate` to generate Prisma client
 
 You can then start in production/dev mode:
+
 ```sh
 bun run prod # production
 
@@ -53,9 +54,20 @@ bun run dev # dev mode - reloads on file changes, human-readable documentation
 ## Scripts
 
 - `bun run lint`: runs Biome linting, applies safe fixes, and auto-organizes imports
-- `bun run init-db`: shortcut for `bunx prisma db push`; applies Prisma schema to database, generates Prisma client from schema
-- `bunx prisma generate`: generates Prisma client from schema
-- `bunx prisma format`: formats Prisma schema, if/when changes are made
+- `bunx --bun prisma format`: formats Prisma schema, if/when changes are made
+- `bunx --bun prisma migrate dev --name <name>`: applies Prisma schema to database using migration file (recommended)
+- `bunx --bun prisma migrate deploy`: deploys Prisma schema to database, for production
+- `bunx --bun prisma generate`: generates Prisma client
+
+## ⚠️ Development: Database Changes
+
+When making database/schema changes, such as adding or modifying fields to implement new features, it is **important**
+to create a new migration with `bunx --bun prisma migrate dev --name <name>`, with an approproate and accurate name.
+
+This ensures that database changes can be safely pushed to existing instances in production, and allows for safer
+development changes.
+
+`prisma db push` immediantly syncs schema changes to the database without creating a migration, which is **not recommended.**
 
 ## Licence
 Copyright (c) 2025 Pygmy & contributors

@@ -30,6 +30,13 @@ export const userGetParam = z.object({
   userId: z.string().nonempty().meta({ description: 'User ID to fetch' })
 });
 
+export const userGetUsernameAvailabilityParam = z.object({
+  username: z
+    .string()
+    .nonempty()
+    .meta({ description: 'Username to check availability for' })
+});
+
 // Requests
 export const userCreateBody = z.object({
   email: z.email().meta({ description: 'Email address' }),
@@ -150,3 +157,7 @@ export const userGetResponse = z
   .meta({
     description: 'User object'
   });
+
+export const userGetUsernameAvailabilityResponse = z.boolean().meta({
+  description: 'Indicates if username is available or not'
+});
