@@ -1,4 +1,3 @@
-// @ts-ignore ipc-client is lacking typing... fix this
 import IPC, { type IPCMessage } from 'ipc-client';
 import prisma from '../handlers/db';
 import { validateToken } from './session';
@@ -10,6 +9,11 @@ ipc.on('connect', () => console.log('Connected to IPC server/socket'));
 ipc.on('disconnect', () => console.log('Lost connection to IPC server/socket'));
 
 ipc.on('message', async (message: IPCMessage) => {
+  if (
+    typeof message.payload !== 'object' ||
+    message.payload === null
+  ) return;
+
   if (
     'type' in message.payload === false ||
     'action' in message.payload === false
