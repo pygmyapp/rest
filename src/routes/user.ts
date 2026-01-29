@@ -3,9 +3,9 @@ import { describeRoute, resolver } from 'hono-openapi';
 import { Errors } from '../constants';
 import prisma from '../handlers/db';
 import { ipc } from '../handlers/ipc';
-// import { sendMail } from '../handlers/mail';
 import { authMiddleware } from '../handlers/session';
 import { generateSnowflake } from '../handlers/snowflake';
+import { createAndHashToken, hashToken, sendEmailVerificationMail } from '../handlers/mail';
 import { validate } from '../handlers/validator';
 import { errorResponse } from '../schemas/shared';
 import {
@@ -25,7 +25,9 @@ import {
   userGetUsernameAvailabilityResponse,
   userUpdateBody,
   userUpdateRequestBody,
-  userUpdateRequestParam
+  userUpdateRequestParam,
+  userVerifyEmailAddressBody,
+  userVerifyEmailAddressResponse
 } from '../schemas/user';
 
 const app = new Hono();
@@ -94,6 +96,19 @@ app.post(
         }
       }
     });
+
+    // Create and send email verification
+    const emailVerification = createAndHashToken();
+
+    await prisma.emailVerificationToken.create({
+      data: {
+        userId: id,
+        hash: emailVerification.hash,
+        createdAt: new Date()
+      }
+    });
+
+    await sendEmailVerificationMail(email, username, emailVerification.token);
 
     return c.json({ id }, 201);
   }
@@ -887,6 +902,123 @@ app.get(
     if (!user) return c.json(true);
 
     return c.json(false);
+  }
+);
+
+// Verify an email address
+// POST /verify
+app.post(
+  '/verify',
+  describeRoute({
+    description: 'Verify an email address',
+    tags: ['Users'],
+    responses: {
+      201: {
+        description: 'Email address verified',
+        content: {
+          'application/json': {
+            schema: resolver(userVerifyEmailAddressResponse)
+          }
+        }
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  validate('json', userVerifyEmailAddressBody),
+  async (c) => {
+    const { token } = c.req.valid('json');
+
+    const hash = hashToken(token);
+
+    const record = await prisma.emailVerificationToken.findFirst({
+      where: { hash }
+    });
+
+    if (!record) return c.json({ error: Errors.InvalidToken }, 400);
+
+    const createdAt = new Date(record.createdAt).getTime();
+    const now = Date.now();
+
+    // 24 hours
+    if (now - createdAt > 86400000) return c.json({ error: Errors.ExpiredToken }, 400);
+
+    // Verify user, delete verification token record
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: record.userId },
+        data: { verified: true }
+      }),
+      prisma.emailVerificationToken.delete({
+        where: { id: record.id }
+      })
+    ]);
+
+    // todo: tell gateway, if they are logged in then the state should update in client
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'EMAIL_VERIFIED',
+      client: record.userId,
+      verified: true
+    });
+
+    return c.json({ verified: true });
+  }
+);
+
+// Resend email verification
+// POST /verify/resend
+app.post(
+  '/verify/resend',
+  describeRoute({
+    description: 'Resend email verification',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+    }
+  }),
+  authMiddleware,
+  async (c) => {
+    // Get user
+    const user = await prisma.user.findUnique({
+      where: {
+        id: c.var.userId
+      },
+      select: {
+        email: true,
+        username: true,
+        verified: true
+      }
+    });
+
+    if (!user) return c.json({ error: Errors.ServerError }, 500);
+    if (user.verified) return c.json({ error: Errors.AlreadyVerified }, 400);
+
+    // Create new verification token
+    const emailVerification = createAndHashToken();
+
+    await prisma.$transaction([
+      prisma.emailVerificationToken.delete({
+        where: { userId: c.var.userId }
+      }),
+      prisma.emailVerificationToken.create({
+        data: {
+          userId: c.var.userId,
+          hash: emailVerification.hash,
+          createdAt: new Date()
+        }
+      })
+    ]);
+
+    await sendEmailVerificationMail(user.email, user.username, emailVerification.token);
+
+    return c.body(null, 201);
   }
 );
 

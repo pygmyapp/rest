@@ -1,5 +1,6 @@
 export const Errors = {
   ServerError: 'Server Error',
+  RateLimited: 'Rate Limited',
   EmailAlreadyInUse: 'Email already in use',
   UsernameAlreadyInUse: 'Username already in use',
   UserNotFound: 'User not found',
@@ -16,5 +17,7 @@ export const Errors = {
   FriendNotFound: 'Friend not found',
   CannotSendRequestToSelf: 'Cannot send a friend request to yourself',
   RequestNotFound: 'Friend request not found',
-  RequestAlreadySent: 'Friend request already sent'
+  RequestAlreadySent: 'Friend request already sent',
+  AlreadyVerified: 'Account already verified',
+  NotVerified: 'Account not verified'
 };

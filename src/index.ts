@@ -5,6 +5,7 @@ import { openAPIRouteHandler } from 'hono-openapi';
 import { version } from '../package.json';
 import { ipc } from './handlers/ipc';
 import { verify as verifyMailTransporter } from './handlers/mail';
+import { ratelimitMiddleware } from './handlers/ratelimit';
 import session from './routes/session';
 import user from './routes/user';
 
@@ -21,6 +22,7 @@ if (
 const app = new Hono();
 
 app.use('/*', cors());
+app.use('/*', ratelimitMiddleware);
 
 app.route('/users', user);
 app.route('/sessions', session);
@@ -84,6 +86,6 @@ app.get('/health', (c) => c.json({ ok: true }));
 ipc.connect();
 
 // Verify mail transporter is working
-verifyMailTransporter();
+await verifyMailTransporter();
 
 export default app;

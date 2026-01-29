@@ -114,6 +114,13 @@ export const userCreateBlockedBody = z.object({
   userId: z.string().nonempty().meta({ description: 'User ID to block' })
 });
 
+export const userVerifyEmailAddressBody = z.object({
+  token: z
+    .string()
+    .nonempty()
+    .meta({ description: 'Email verification token' })
+});
+
 // Responses
 export const userCreateResponse = z
   .object({
@@ -158,6 +165,8 @@ export const userGetResponse = z
     description: 'User object'
   });
 
-export const userGetUsernameAvailabilityResponse = z.boolean().meta({
-  description: 'Indicates if username is available or not'
-});
+export const userGetUsernameAvailabilityResponse = z.boolean().meta({ description: 'Indicates if username is available or not' });
+
+export const userVerifyEmailAddressResponse = z.object({
+  verified: z.boolean().meta({ description: 'Email address verified status' })
+})

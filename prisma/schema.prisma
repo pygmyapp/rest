@@ -17,13 +17,11 @@ model User {
   verified Boolean   @default(false)
   sessions Session[]
 
-  // Email Verification
-  emailVerified              Boolean   @default(false)
-  emailVerificationToken     String?
-  emailVerificationCreatedAt DateTime?
-
   // Profile
   profile Profile?
+
+  // Email Verification
+  emailVerificationToken EmailVerificationToken?
 
   // Friends
   friends  User[] @relation("UserFriends")
@@ -64,6 +62,14 @@ model Session {
   user    User     @relation(fields: [userId], references: [id])
   userId  String
   lastUse DateTime @default(now())
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid(2))
+  hash      String   @unique
+  createdAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String   @unique
 }
 
 enum RequestType {
