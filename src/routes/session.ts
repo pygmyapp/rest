@@ -4,6 +4,7 @@ import { Errors } from '../constants';
 import prisma from '../handlers/db';
 import { authMiddleware, encodeToken } from '../handlers/session';
 import { validate } from '../handlers/validator';
+import { getRequestIP } from '../handlers/ratelimit';
 import {
   sessionCreateBody,
   sessionCreateResponse,
@@ -41,9 +42,11 @@ app.get(
     if (!sessions.length) return c.json([]);
 
     return c.json(
-      sessions.map(({ id, userId, lastUse }) => ({
+      sessions.map(({ id, userId, userAgent, ipAddress, lastUse }) => ({
         id,
         userId,
+        userAgent,
+        ipAddress,
         lastUsed: lastUse,
         active: id === c.var.sessionId
       }))
@@ -93,14 +96,18 @@ app.post(
 
     if (!valid) return c.json({ error: Errors.InvalidEmailOrPassword }, 401);
 
-    // Generate token
+    // Generate token, fetch user agent/IP address
     const { sessionId, token } = await encodeToken(user.id);
+    const userAgent = c.req.header('User-Agent') ?? null;
+    const ipAddress = getRequestIP(c);
 
     // Add session to database
     await prisma.session.create({
       data: {
         id: sessionId,
-        userId: user.id
+        userId: user.id,
+        userAgent,
+        ipAddress
       }
     });
 

@@ -16,6 +16,8 @@ export const sessionListResponse = z
   .object({
     id: z.string().meta({ description: 'Session ID' }),
     userId: z.string().meta({ description: 'User ID' }),
+    userAgent: z.string().optional().meta({ description: 'User Agent' }),
+    ipAddress: z.string().optional().meta({ description: 'IP Address' }),
     lastUsed: z.string().meta({ description: 'Date provided as a string' }),
     active: z.boolean().meta({
       description:

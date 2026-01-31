@@ -18,14 +18,14 @@ export const redis = new Redis({
 });
 
 // Get IP
-export const getRequestIP = (c: Context): string => {
+export const getRequestIP = (c: Context): string | null => {
   const info = getConnInfo(c);
   
   return (
-    info.remote.address ??
-    c.req.header('x-forwarded-for')?.split(',')[0] ??
-    c.req.header('x-real-ip') ??
-    'unknown'
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    c.req.header('x-real-ip') ||
+    info.remote?.address ||
+    null
   );
 }
 
@@ -72,7 +72,12 @@ export const ratelimitMiddleware = createMiddleware<{
   const currentPath = c.req.path;
   const sessionId = c.get('sessionId');
 
-  const key = sessionId ?? getRequestIP(c);
+  // As a last resort, if there is no unique identifier present, funnel unidentified traffic into an "unknown" key
+  const key = sessionId
+    ? `session:${sessionId}`
+    : getRequestIP(c)
+      ? `ip:${getRequestIP(c)}`
+      : 'unknown';
 
   // Register
   if (currentPath === '/users') 
