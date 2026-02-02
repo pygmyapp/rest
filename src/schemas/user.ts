@@ -97,6 +97,28 @@ export const userUpdateBody = z
     }
   );
 
+export const userUpdateProfileBody = z
+  .object({
+    avatar: z.boolean()
+      .meta({ description: 'Boolean indicating if the user has an avatar or not. To set to true, an avatar **must** be uploaded to the CDN.' }),
+    displayName: z.string()
+      .min(1)
+      .max(40)
+      .nullable()
+      .meta({ description: 'Display name that shows instead of username (optional)' }),
+    pronouns: z.string()
+      .min(1)
+      .max(32)
+      .nullable()
+      .meta({ description: 'Pronouns (optional)' }),
+    bio: z.string()
+      .min(1)
+      .max(1000)
+      .nullable()
+      .meta({ description: 'Bio/profile description (optional)' })
+  })
+  .partial();
+
 export const userCreateRequestBody = z.object({
   username: z
     .string()

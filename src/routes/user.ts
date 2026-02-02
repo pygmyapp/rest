@@ -24,6 +24,7 @@ import {
   userGetUsernameAvailabilityParam,
   userGetUsernameAvailabilityResponse,
   userUpdateBody,
+  userUpdateProfileBody,
   userUpdateRequestBody,
   userUpdateRequestParam,
   userVerifyEmailAddressBody,
@@ -334,12 +335,104 @@ app.delete(
   }
 );
 
+// Update the authorized user's profile
+// PATCH /users/@me/profile
+app.patch(
+  '/@me/profile',
+  describeRoute({
+    description:
+      "Update the authorized user's profile\n\n**🔒 Requires Authorization**",
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Profile updated successfully'
+      },
+      304: {
+        description: 'No changes saved'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
+  authMiddleware,
+  validate('json', userUpdateProfileBody),
+  async (c) => {
+    const data = c.req.valid('json');
+
+    const user = await prisma.user.findUnique({
+      where: { id: c.var.userId },
+      include: {
+        profile: true
+      }
+    });
+
+    if (!user ||!user?.profile) return c.json({ error: Errors.ServerError }, 500);
+
+    if (
+      data.displayName === undefined &&
+      data.bio === undefined &&
+      data.pronouns === undefined &&
+      data.avatar === undefined
+    )
+      return c.status(304);
+
+    const changes: { [x: string]: string | boolean | null } = {};
+
+    // Avatar
+    if (data.avatar !== undefined && data.avatar !== user.profile.avatar) {
+      // TODO: check cdn to check avatar exists
+
+      changes.avatar = data.avatar;
+    }
+
+    // Display Name
+    if (data.displayName !== undefined && data.displayName !== user.profile.displayName) {
+      changes.displayName = data.displayName;
+    }
+
+    // Bio
+    if (data.bio !== undefined && data.bio !== user.profile.bio) {
+      changes.bio = data.bio;
+    }
+
+    // Pronouns
+    if (data.pronouns !== undefined && data.pronouns !== user.profile.pronouns) {
+      changes.pronouns = data.pronouns;
+    }
+
+    // Save changes
+    await prisma.profile.update({
+      where: { userId: user.id },
+      data: changes
+    });
+
+    // TODO: if setting avatar to false, delete avatar from cdn
+
+    return c.json({});
+  }
+);
+
 // Fetch the authorized user\'s friends
 // GET /@me/friends
 app.get(
   '/@me/friends',
   describeRoute({
-    description: "Fetch the authorized user's friends",
+    description: "Fetch the authorized user's friends\n\n**🔒 Requires Authorization**",
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -383,7 +476,7 @@ app.get(
 app.delete(
   '/@me/friends/:userId',
   describeRoute({
-    description: 'Remove a friend',
+    description: 'Remove a friend\n\n**🔒 Requires Authorization**',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -469,7 +562,7 @@ app.get(
   '/@me/requests',
   describeRoute({
     description:
-      "Fetch the authorized user's friend requests (incoming, outgoing)",
+      "Fetch the authorized user's friend requests (incoming, outgoing)\n\n**🔒 Requires Authorization**",
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -515,7 +608,7 @@ app.get(
 app.post(
   '/@me/requests',
   describeRoute({
-    description: 'Send a friend request',
+    description: 'Send a friend request\n\n**🔒 Requires Authorization**',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -618,7 +711,7 @@ app.post(
 app.patch(
   '/@me/requests/:userId',
   describeRoute({
-    description: 'Accept/ignore a friend request',
+    description: 'Accept/ignore a friend request\n\n**🔒 Requires Authorization**',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -728,6 +821,32 @@ app.patch(
 // DELETE /@me/requests/:userId
 app.delete(
   '/@me/requests/:userId',
+  describeRoute({
+    description: 'Cancel an outgoing friend request\n\n**🔒 Requires Authorization**',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Friend request cancelled successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
   authMiddleware,
   validate('param', userDeleteRequestParam),
   async (c) => {
@@ -821,7 +940,7 @@ app.get(
   '/:userId',
   describeRoute({
     description:
-      'Fetch a user by ID\n\nFor privacy, this route will only return basic information, unless you share a relation with the user (ie. you share a server, are friends, etc.)',
+      'Fetch a user by ID\n\nFor privacy, this route will only return basic information, unless you share a relation with the user (ie. you share a server, are friends, etc.)\n\n**🔒 Requires Authorization**',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
@@ -913,7 +1032,7 @@ app.post(
     description: 'Verify an email address',
     tags: ['Users'],
     responses: {
-      201: {
+      200: {
         description: 'Email address verified',
         content: {
           'application/json': {
@@ -977,10 +1096,29 @@ app.post(
 app.post(
   '/verify/resend',
   describeRoute({
-    description: 'Resend email verification',
+    description: 'Resend email verification\n\n**🔒 Requires Authorization**',
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     responses: {
+      201: {
+        description: 'Email sent successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
     }
   }),
   authMiddleware,
