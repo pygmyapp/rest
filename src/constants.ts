@@ -18,6 +18,11 @@ export const Errors = {
   CannotSendRequestToSelf: 'Cannot send a friend request to yourself',
   RequestNotFound: 'Friend request not found',
   RequestAlreadySent: 'Friend request already sent',
+  CannotBlockSelf: 'Cannot block yourself',
+  NotBlocked: 'User not blocked',
+  AlreadyBlocked: 'User already blocked',
   AlreadyVerified: 'Account already verified',
-  NotVerified: 'Account not verified'
+  NotVerified: 'Account not verified',
+  AvatarNotInCDN: 'Avatar not uploaded to CDN, cannot set avatar as enabled'
+  
 };

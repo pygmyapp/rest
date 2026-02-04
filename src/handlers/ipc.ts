@@ -152,7 +152,5 @@ ipc.on('message', async (message: IPCMessage) => {
   }
 
   // Response:
-  if (type === 'response') {
-    // TODO: when required, currently not in use.
-  }
+  if (type === 'response') {}
 });

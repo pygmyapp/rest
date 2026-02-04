@@ -29,6 +29,10 @@ model User {
 
   sentRequests     Request[] @relation("SentRequests")
   receivedRequests Request[] @relation("ReceivedRequests")
+
+  // Blocked Users
+  blocked UserBlock[] @relation("user")
+  blockedBy UserBlock[] @relation("blockedUser")
 }
 
 model Profile {
@@ -55,6 +59,18 @@ model Request {
 
   // Prevent duplicates
   @@unique([fromUserId, toUserId])
+}
+
+model UserBlock {
+  userId String
+  blockedUserId String
+  createdAt DateTime    @default(now())
+
+  user User @relation("user", fields: [userId], references: [id], onDelete: Cascade)
+  blockedUser User @relation("blockedUser", fields: [blockedUserId], references: [id], onDelete: Cascade)
+
+  @@id([userId, blockedUserId])
+  @@index([blockedUserId])
 }
 
 model Session {

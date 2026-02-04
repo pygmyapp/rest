@@ -10,6 +10,7 @@ const limitMultiplier = process.env.NODE_ENV === 'development' ? 100 : 1;
 
 const pointsGlobal = 300 * limitMultiplier;
 const pointsRegiser = 10 * limitMultiplier;
+export const pointsChangeUsername = 1 * limitMultiplier;
 const pointsVerifyResend = 1 * limitMultiplier;
 
 // Redis (Valkey) client
@@ -17,11 +18,19 @@ export const redis = new Redis({
   enableOfflineQueue: false
 });
 
+// Normalize IP
+export const normalizeIP = (ip: string | null): string | null => {
+  if (!ip) return null;
+  if (ip.startsWith('::ffff:')) return ip.slice(7);
+  if (ip === '::1') return '127.0.0.1';
+  return ip;
+}
+
 // Get IP
 export const getRequestIP = (c: Context): string | null => {
   const info = getConnInfo(c);
   
-  return (
+  return normalizeIP(
     c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
     c.req.header('x-real-ip') ||
     info.remote?.address ||
@@ -52,6 +61,14 @@ const rateLimiterRegister = new RateLimiterRedis({
   inMemoryBlockOnConsumed: pointsRegiser,
   points: pointsRegiser,
   duration: 60 * 60 // 1 hour
+});
+
+export const rateLimiterChangeUsername = new RateLimiterRedis({
+  keyPrefix: 'pygmy:ratelimit:username',
+  storeClient: redis,
+  inMemoryBlockOnConsumed: pointsChangeUsername,
+  points: pointsChangeUsername,
+  duration: (60 * 60) * 24 // 24 hours
 });
 
 const rateLimiterVerifyResend = new RateLimiterRedis({

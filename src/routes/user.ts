@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
+import { RateLimiterRes } from 'rate-limiter-flexible';
+import type { IPCMessage } from 'ipc-client';
 import { Errors } from '../constants';
 import prisma from '../handlers/db';
 import { ipc } from '../handlers/ipc';
@@ -16,6 +18,7 @@ import {
   userDeleteBlockedParam,
   userDeleteFriendParam,
   userDeleteRequestParam,
+  userGetBlockedResponse,
   userGetFriendsResponse,
   userGetParam,
   userGetRequestsResponse,
@@ -30,6 +33,8 @@ import {
   userVerifyEmailAddressBody,
   userVerifyEmailAddressResponse
 } from '../schemas/user';
+import { pointsChangeUsername, rateLimiterChangeUsername, setRateLimitHeaders } from '../handlers/ratelimit';
+import { boolean } from 'zod';
 
 const app = new Hono();
 
@@ -280,19 +285,45 @@ app.patch(
       changes.hash = hash;
     }
 
-    // Save changes
-    await prisma.user.update({
-      where: { id: user.id },
-      data: changes
-    });
+    // If username change included, this request uses the change username rate limiter
+    if ('username' in changes) {
+      rateLimiterChangeUsername.consume(`session:${c.var.sessionId}`, 1)
+        .then(async (res) => {
+          setRateLimitHeaders(c, res.msBeforeNext, pointsChangeUsername, res.remainingPoints);
+          
+          await prisma.user.update({
+            where: { id: user.id },
+            data: changes
+          });
 
-    // Invalidate sessions, if required
-    if ('hash' in changes)
-      await prisma.session.deleteMany({
-        where: { userId: user.id }
+          if ('hash' in changes)
+            await prisma.session.deleteMany({
+              where: { userId: user.id }
+            });
+
+          return c.json({});
+        })
+        .catch((res) => {
+          if (res instanceof RateLimiterRes) {
+            setRateLimitHeaders(c, res.msBeforeNext, pointsChangeUsername, res.remainingPoints);
+            return c.json({ error: Errors.RateLimited }, 429);
+          } else {
+            return c.json({ error: Errors.ServerError }, 500);
+          }
+        });
+    } else {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: changes
       });
 
-    return c.json({});
+      if ('hash' in changes)
+        await prisma.session.deleteMany({
+          where: { userId: user.id }
+        });
+
+      return c.json({});
+    }
   }
 );
 
@@ -395,9 +426,47 @@ app.patch(
 
     // Avatar
     if (data.avatar !== undefined && data.avatar !== user.profile.avatar) {
-      // TODO: check cdn to check avatar exists
+      // Check the avatar exists in the CDN
+      const checkForAvatar = new Promise<void>(async (resolve, reject) => {
+        const listen = () => {
+          ipc.once('message', (message: IPCMessage) => {
+            if (typeof message.payload !== 'object' || message.payload === null) return;
+            if ('type' in message.payload === false || 'action' in message.payload === false) return;
 
-      changes.avatar = data.avatar;
+            if (message.payload.type !== 'response') return listen();
+            if (message.from !== 'cdn') return listen();
+            if (message.payload.action !== 'CHECK_IF_AVATAR_EXISTS') return listen();
+
+            if ('userId' in message.payload && 'exists' in message.payload) {
+              const userId = message.payload.userId as string;
+              const exists = message.payload.exists as boolean;
+
+              if (userId !== user.id) return reject();
+              if (exists === false) return reject();
+
+              return resolve();
+            }
+
+            else reject();
+          });
+        }
+
+        listen();
+
+        await ipc.send('cdn', {
+          type: 'request',
+          action: 'CHECK_IF_AVATAR_EXISTS',
+          userId: c.var.userId
+        });
+      });
+
+      try {
+        await checkForAvatar;
+
+        changes.avatar = data.avatar
+      } catch (err) {
+        return c.json({ error: Errors.AvatarNotInCDN }, 400);
+      }
     }
 
     // Display Name
@@ -415,13 +484,21 @@ app.patch(
       changes.pronouns = data.pronouns;
     }
 
-    // Save changes
     await prisma.profile.update({
       where: { userId: user.id },
       data: changes
     });
 
-    // TODO: if setting avatar to false, delete avatar from cdn
+    // Delete avatar from CDN if setting to false
+    if ('avatar' in changes && changes.avatar === false) {
+      if (changes.avatar === user.profile.avatar) return;
+
+      await ipc.send('cdn', {
+        type: 'request',
+        action: 'DELETE_AVATAR_IF_EXISTS',
+        userId: c.var.userId
+      });
+    }
 
     return c.json({});
   }
@@ -893,28 +970,226 @@ app.delete(
   }
 );
 
-// Get blocked users
+// Fetch the authorized user's blocked users
 // GET /@me/blocked
-app.get('/@me/blocked', authMiddleware, async (c) => {
-  return c.json([]);
+app.get('/@me/blocked',   describeRoute({
+    description:
+      "Fetch the authorized user's blocked users\n\n**🔒 Requires Authorization**",
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'List of blocked users',
+        content: {
+          'application/json': {
+            schema: resolver(userGetBlockedResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }), authMiddleware, async (c) => {
+  const blocked = await prisma.userBlock.findMany({
+    where: { userId: c.var.userId },
+    select: {
+      blockedUserId: true,
+      createdAt: true
+    }
+  });
+
+  return c.json(blocked.map((block) => ({
+    id: block.blockedUserId,
+    createdAt: block.createdAt
+  })));
 });
 
 // Block a user
 // POST /@me/blocked
 app.post(
   '/@me/blocked',
+  describeRoute({
+    description: 'Block a user\n\n**🔒 Requires Authorization**',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      201: {
+        description: 'User blocked successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
   authMiddleware,
   validate('json', userCreateBlockedBody),
-  async (c) => {}
+  async (c) => {
+    const { userId } = c.req.valid('json');
+
+    // Validate the user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!user) return c.json({ error: Errors.UserNotFound }, 400);
+    if (user.id === c.var.userId) return c.json({ error: Errors.CannotBlockSelf }, 400);
+
+    // Validate block doesn't already exist
+    const existingBlock = await prisma.userBlock.findUnique({
+      where: {
+        userId_blockedUserId: {
+          userId: c.var.userId,
+          blockedUserId: userId
+        }
+      }
+    });
+
+    if (existingBlock) return c.json({ error: Errors.AlreadyBlocked }, 400);
+
+    // If the users are friends, delete the friendship
+    const friendship = await prisma.user.findFirst({
+      where: {
+        id: c.var.userId,
+        OR: [
+          { friends: { some: { id: userId } } },
+          { friendOf: { some: { id: userId } } }
+        ]
+      }
+    });
+
+    if (friendship) {
+      await prisma.user.update({
+        where: { id: c.var.userId },
+        data: {
+          friends: {
+            disconnect: { id: userId },
+          },
+          friendOf: {
+            disconnect: { id: userId },
+          },
+        },
+      });
+      
+      await ipc.send('gateway', {
+        type: 'event',
+        event: 'FRIEND_DELETE',
+        client: c.var.userId,
+        userId
+      });
+
+      await ipc.send('gateway', {
+        type: 'event',
+        event: 'FRIEND_DELETE',
+        client: userId,
+        userId: c.var.userId
+      });
+    }
+
+    // Create block
+    await prisma.userBlock.create({
+      data: {
+        userId: c.var.userId,
+        blockedUserId: userId
+      }
+    });
+
+    // Send gateway event
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'BLOCK_CREATE',
+      client: c.var.userId,
+      userId
+    });
+
+    return c.json(null, 201);
+  }
 );
 
 // Unblock a user
 // DELETE /@me/blocked/:userId
 app.delete(
   '/@me/blocked/:userId',
+  describeRoute({
+    description: 'Unblock a user\n\n**🔒 Requires Authorization**',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'User unblocked successfully'
+      },
+      400: {
+        description: 'Request failed',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      },
+      401: {
+        description: 'Authorization required',
+        content: {
+          'application/json': {
+            schema: resolver(errorResponse)
+          }
+        }
+      }
+    }
+  }),
   authMiddleware,
   validate('param', userDeleteBlockedParam),
-  async (c) => {}
+  async (c) => {
+    const { userId } = c.req.valid('param');
+
+    // Validate that block exists
+    const existingBlock = await prisma.userBlock.findUnique({
+      where: {
+        userId_blockedUserId: {
+          userId: c.var.userId,
+          blockedUserId: userId
+        }
+      }
+    });
+
+    if (!existingBlock) return c.json({ error: Errors.NotBlocked }, 400);
+
+    await prisma.userBlock.delete({
+      where: {
+        userId_blockedUserId: {
+          userId: c.var.userId,
+          blockedUserId: userId
+        }
+      }
+    });
+
+    // Send gateway event
+    await ipc.send('gateway', {
+      type: 'event',
+      event: 'BLOCK_DELETE',
+      client: c.var.userId,
+      userId
+    });
+
+    return c.body(null, 204);
+  }
 );
 
 // Get open direct messages and group channels

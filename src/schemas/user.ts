@@ -169,13 +169,23 @@ export const userGetFriendsResponse = z.string().array().meta({
 
 export const userGetRequestsResponse = z
   .object({
-    direction: z.enum(['INCOMING', 'OUTGOING']),
-    from: z.string(),
-    to: z.string()
+    direction: z.enum(['INCOMING', 'OUTGOING']).meta({ description: 'Whether the request is incoming (sent by someone else) or outgoing (sent by this user)' }),
+    from: z.string().meta({ description: 'User ID' }),
+    to: z.string().meta({ description: 'User ID' })
   })
   .array()
   .meta({
     description: 'Array of friend request objects'
+  });
+
+export const userGetBlockedResponse = z
+  .object({
+    id: z.string().meta({ description: 'User ID' }),
+    createdAt: z.date().meta({ description: 'When the user was blocked' })
+  })
+  .array()
+  .meta({
+    description: 'Array of blocked user objects'
   });
 
 export const userGetResponse = z
