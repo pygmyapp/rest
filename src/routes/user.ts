@@ -34,7 +34,6 @@ import {
   userVerifyEmailAddressResponse
 } from '../schemas/user';
 import { pointsChangeUsername, rateLimiterChangeUsername, setRateLimitHeaders } from '../handlers/ratelimit';
-import { boolean } from 'zod';
 
 const app = new Hono();
 
@@ -216,7 +215,7 @@ app.patch(
     )
       return c.status(304);
 
-    const changes: { [x: string]: string } = {};
+    const changes: { [x: string]: string | boolean; } = {};
 
     // Email
     if (data.email !== undefined && data.email !== user.email) {
@@ -296,6 +295,27 @@ app.patch(
             data: changes
           });
 
+          if ('email' in changes) {
+            changes.verified = false;
+
+            const emailVerification = createAndHashToken();
+
+            await prisma.$transaction([
+              prisma.emailVerificationToken.deleteMany({
+                where: { userId: c.var.userId }
+              }),
+              prisma.emailVerificationToken.create({
+                data: {
+                  userId: c.var.userId,
+                  hash: emailVerification.hash,
+                  createdAt: new Date()
+                }
+              })
+            ]);
+
+            await sendEmailVerificationMail(changes.email as string, user.username, emailVerification.token);
+          }
+
           if ('hash' in changes)
             await prisma.session.deleteMany({
               where: { userId: user.id }
@@ -312,6 +332,27 @@ app.patch(
           }
         });
     } else {
+      if ('email' in changes) {
+        changes.verified = false;
+
+        const emailVerification = createAndHashToken();
+
+        await prisma.$transaction([
+          prisma.emailVerificationToken.deleteMany({
+            where: { userId: c.var.userId }
+          }),
+          prisma.emailVerificationToken.create({
+            data: {
+              userId: c.var.userId,
+              hash: emailVerification.hash,
+              createdAt: new Date()
+            }
+          })
+        ]);
+
+        await sendEmailVerificationMail(changes.email as string, user.username, emailVerification.token);
+      }
+
       await prisma.user.update({
         where: { id: user.id },
         data: changes

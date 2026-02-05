@@ -181,7 +181,7 @@ export const userGetRequestsResponse = z
 export const userGetBlockedResponse = z
   .object({
     id: z.string().meta({ description: 'User ID' }),
-    createdAt: z.date().meta({ description: 'When the user was blocked' })
+    createdAt: z.iso.date().meta({ description: 'When the user was blocked' })
   })
   .array()
   .meta({
